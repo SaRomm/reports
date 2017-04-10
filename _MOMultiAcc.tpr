@@ -1,0 +1,1429 @@
+/*
+Модификации:
+Автор: Щеголев С.А.
+Дата изменения: 24.12.2009
+Доработка штатного MOMultiAcc.tpr. Задача P068.T0732 SD577550 WO9947.
+
+Автор: Щеголев С.А.
+Дата изменения: 14.01.2010
+Добавлена возможность автоматической группировки, исправлен перенос - с 16-го поля . Задача P068.T0732 SD577550 WO9947.
+
+Автор: Маслюхин А.Ф.
+Дата изменения: 08.09.2016
+Переход на версию 8.1
+*/
+
+// -------------------------------------------------------
+// Параметры:
+//    - Отмеченные первичные документы или проводки
+//    - Количество экземпляров
+//      Д.б.заведен параметр отчетов и поисков
+//       Объект                - ничего не заполняем
+//       Ссылка                - Copies
+//       Сокращение            - КолЭкзем
+//       Наименование          - Количество экземляров
+//       Тип данных            - целое - 2 байт
+//       Длина                 - ничего не заполняем
+//       Метод объекта         - ничего не заполняем
+//       Поле для показа       - ничего не заполняем
+//       Элементы перечисления - ничего не заполняем
+// -------------------------------------------------------
+
+[SQL]
+@SQL_Params@ = SQL{
+select Number       = %Number! 
+      ,Format       = %Format! 
+      ,Grouping     = %Grouping!
+      ,Sorting      = %Sorting!
+      ,Field5       = ''
+      ,Correctional = %Correctional! 
+      ,AttachDocCnt = %AttachDocCnt!
+      ,AttachPgCnt  = %AttachPgCnt!
+      ,CommentStr   = %CommentStr!
+      ,CommentClsID = 0
+      ,Shtamp1      = 0 
+      ,Shtamp2      = 0
+      ,Field20      = %Field20!
+      ,Dop          = %Dop!
+      ,rep          = case when %Dop! = 0 then 'MOMultiAccW.doc' 
+                           when %Dop! = 1 and %Grouping! > 0 then 'MOMultiAccW.doc'    
+                           else 'MOMultiAccW2.doc' 
+                      end      
+}
+       
+@SQL_Main@ = SQL{
+#M_FORCEPLAN
+/*
+Настройка "Показывать свободное поле 5"
+Если 0(по умолчанию), то поле заполняется, если 1, то не заполняется
+*/
+declare @ShowField5 tinyint
+--select @ShowField5 = 0
+select @ShowField5 = 1
+
+declare @Shtamp1       tinyint
+       ,@Shtamp2       tinyint
+       ,@Grouping      tinyint
+       ,@Sorting       tinyint
+       ,@Field5        varchar(255)
+       ,@CommentStr    varchar(255)
+       ,@CommentClsID  DSIDENTIFIER
+       ,@CommentClsVal varchar(255)
+       ,@Number        varchar(50)
+       ,@Format        int
+       ,@ErrorsCount   tinyint 
+       ,@Correctional  tinyint
+       ,@AttachDocCnt  varchar(40)
+       ,@AttachPgCnt   varchar(10) 
+            --итоги для режима группировки-- 
+       ,@MaxResID      DSIDENTIFIER
+       ,@MinResID      DSIDENTIFIER
+       ,@MaxDate       smalldatetime
+       ,@MinDate       smalldatetime
+       ,@MaxType       int
+       ,@MinType       int
+       ,@TotalSum      DSBIGMONEY
+       ,@QtyDTotal     DSBIGMONEY
+       ,@QtyCTotal     DSBIGMONEY
+       ,@MaxGSubdivisionID DSIDENTIFIER                        
+       ,@MinGSubdivisionID DSIDENTIFIER   
+       ,@MaxDSubdivisionID DSIDENTIFIER                        
+       ,@MinDSubdivisionID DSIDENTIFIER   
+       ,@MaxComment        varchar(255)
+       ,@MinComment        varchar(255)
+       ,@IntObjectID       numeric(15,0) --- интерфейс ввода
+       ,@MinOpCode         DSIDENTIFIER
+       ,@MaxOpCode         DSIDENTIFIER
+       ,@Field20           DSCOMMENT
+       ,@MaxCountAttachment        int
+       ,@MinCountAttachment        int
+       ,@MaxCountListInAttachment  int
+       ,@MinCountListInAttachment  int
+       ,@AttachDocCntSum           int
+       ,@AttachPgCntSum            int       
+       ,@SignStr           DSCOMMENT
+       
+select @Number       = %Number! 
+      ,@Format       = %Format! 
+      ,@Grouping     = %Grouping!
+      ,@Sorting      = %Sorting!
+      ,@Field5       = ''
+      ,@Correctional = %Correctional!   
+      ,@AttachDocCnt = isnull(convert(varchar, nullif(%AttachDocCnt!, 0)), '')
+      ,@AttachPgCnt  = isnull(convert(varchar, nullif(%AttachPgCnt!, 0)), '')
+      ,@CommentStr   = %CommentStr!
+      ,@CommentClsID = 0
+      ,@Shtamp1      = 0 
+      ,@Shtamp2      = 0
+      ,@Field20      = %Field20!
+            --итоги для режима группировки-- 
+      ,@MaxResID     = null
+      ,@MinResID     = null                             
+      ,@MaxDate      = null
+      ,@MinDate      = null
+      ,@MaxType      = null
+      ,@MinType      = null
+      ,@TotalSum     = null
+      ,@QtyDTotal    = null
+      ,@QtyCTotal    = null
+      ,@ErrorsCount  = 0
+      ,@MaxGSubdivisionID = null                        
+      ,@MinGSubdivisionID = null   
+      ,@MaxDSubdivisionID = null                        
+      ,@MinDSubdivisionID = null   
+      ,@MaxComment        = null
+      ,@MinComment        = null
+      ,@MinOpCode         = null
+      ,@MaxOpCode         = null
+      
+create table #DocGroup
+       (
+       DealTransactID   DSIDENTIFIER,
+       ResourceID       DSIDENTIFIER,
+       MarkType         DSINT_KEY,
+       Number           varchar(20) null,
+       QtyDTotal        numeric(28, 10) null,
+       QtyCTotal        numeric(28, 10) null,
+       TotalSum         numeric(28, 10) null,
+       AttachDocCntSum  int null,
+       AttachPgCntSum   int null
+       )
+
+create table #DocGroupNum
+       (
+       Num              DSINT_KEY identity,
+       ResourceID       DSIDENTIFIER
+       )
+
+--Определяем доп. атрибуты
+declare @CountAttachmentAttrID       DSIDENTIFIER,
+        @CountListInAttachmentAttrID DSIDENTIFIER,
+        @Field20AttrID               DSIDENTIFIER
+        
+select @CountAttachmentAttrID = CntParamsID
+  from tCntParams #M_NOLOCK_INDEX(XAK1tCntParams)
+ where SysName = 'CountAttachment'
+#M_ISOLAT
+select @CountAttachmentAttrID = isnull(@CountAttachmentAttrID, 0)
+
+select @CountListInAttachmentAttrID = CntParamsID
+  from tCntParams #M_NOLOCK_INDEX(XAK1tCntParams)
+ where SysName = 'CountListInAttachment'
+#M_ISOLAT
+select @CountListInAttachmentAttrID = isnull(@CountListInAttachmentAttrID, 0)
+
+select @Field20AttrID = CntParamsID
+  from tCntParams #M_NOLOCK_INDEX(XAK1tCntParams)
+ where SysName = 'Field20'
+#M_ISOLAT
+select @Field20AttrID = isnull(@Field20AttrID, 0)
+--
+if @Grouping = 0 
+  select @Number = null   --если группировки нет, то берем с документа
+         
+select @CommentClsVal = Comment 
+  from tObjClassifier   #M_NOLOCK_INDEX(XPKtDepClassifier)
+ where ObjClassifierID = @CommentClsID
+#M_ISOLAT
+
+select @IntObjectID = io.InterfaceObjectID
+  from tInterfaceObject  io
+ where io.Brief = 'ВНУТРДОКУМ'
+#M_ISOLAT
+  
+if @Grouping = 0 
+  select @SignStr = ''
+else
+  select @SignStr = 'Подписи'
+
+--> вывод сообщений об ошибках      
+delete pErrorLine
+  from pErrorLine #M_NOLOCK_INDEX(XIE0pErrorLine)
+ where SPID = @@spid
+    
+insert #DocGroup
+       (
+       DealTransactID,
+       ResourceID,
+       MarkType
+       )         
+select isnull(op.OperationID, dt.DealTransactID),
+       isnull(op.ResourceID, case 
+                               when @Grouping = 1 --по Д
+                               then dt.ResourceID
+                               else dt.ResourcePsvID
+                             end),
+       dm.Type
+  from tDocMark  dm #M_NOLOCK_INDEX(XPKtDocMark)
+  left join tOperPart    op #M_NOLOCK_INDEX(XPKtOperPart)
+         on dm.Type = 6    
+        and dm.ID = op.OperationID
+        and op.CharType = case   --полупроводка группировки: группируем по Д - п/п по Д 
+                            when @Grouping = 1 --по Д
+                            then 1
+                            else -1
+                          end 
+  left join tDealTransact dt #M_NOLOCK_INDEX(XPKtDealTransact)
+         on dm.Type in (7, 24, 243) 
+        and dt.DealTransactID = dm.ID  
+ where dm.SPID = @@spid 
+   and dm.Type in (6, 7, 24, 243)
+
+if @Grouping > 0 --группировка по Д или по К 
+begin
+  --     
+  if patindex('\%[^0-9]\%', isnull(@Number , '0')) > 0
+    insert pErrorLine(SPID,TextLine,Tag)
+    select @@spid,'Значения параметра "Номер" при группировке должно быть числовым',''
+  else
+  begin
+    insert #DocGroupNum
+    select distinct ResourceID
+      from #DocGroup
+      
+    update #DocGroup
+       set Number = convert(varchar, convert(int, @Number) + dgn.Num - 1)
+     from #DocGroupNum dgn
+    where dgn.ResourceID = #DocGroup.ResourceID
+  end
+
+  -- По проводкам
+  update #DocGroup
+     set TotalSum = isnull((select sum(od.QtyBs)
+                              from #DocGroup dg1,
+                                   tOperPart od #M_NOLOCK_INDEX(XPKtOperPart)
+                             where dg1.ResourceID = dg.ResourceID
+                               and od.OperationID = dg1.DealTransactID
+                               and od.CharType = case
+                                                   when @Grouping = 1 then 1
+                                                   else -1
+                                                 end), 0)
+    from #DocGroup dg
+   where dg.MarkType  = 6
+            
+  update #DocGroup
+     set QtyDTotal = isnull((select sum(od.Qty)
+                               from #DocGroup dg1,
+                                    tOperPart od #M_NOLOCK_INDEX(XPKtOperPart)
+                              where dg1.ResourceID = dg.ResourceID
+                                and od.OperationID = dg1.DealTransactID
+                                and od.CharType = 1), 0)
+    from #DocGroup dg
+   where dg.MarkType  = 6
+
+  update #DocGroup
+     set QtyCTotal = isnull((select sum(od.Qty)
+                               from #DocGroup dg1,
+                                    tOperPart od #M_NOLOCK_INDEX(XPKtOperPart)
+                              where dg1.ResourceID = dg.ResourceID
+                                and od.OperationID = dg1.DealTransactID
+                                and od.CharType = -1), 0)
+    from #DocGroup dg
+   where dg.MarkType  = 6
+   
+  update #DocGroup
+     set AttachDocCntSum = isnull((select sum(convert(int, isnull(eca.Value, '0')))
+                                     from #DocGroup dg1,
+                                          tOperPart od #M_NOLOCK_INDEX(XPKtOperPart),
+                                          tEntAttrValue eca #M_NOLOCK_INDEX(XIE1tEntAttrValue) 
+                                    where dg1.ResourceID = dg.ResourceID
+                                      and od.OperationID = dg1.DealTransactID
+                                      and od.CharType = 1
+                                      and eca.ObjectID = od.DealTransactID
+                                      and eca.InterfaceType = 0 
+                                      and eca.AttributeID = @CountAttachmentAttrID), 0)
+    from #DocGroup dg
+   where dg.MarkType  = 6
+
+  update #DocGroup
+     set AttachPgCntSum = isnull((select sum(convert(int, isnull(eca.Value, '0')))
+                                    from #DocGroup dg1,
+                                         tOperPart od #M_NOLOCK_INDEX(XPKtOperPart),
+                                         tEntAttrValue eca #M_NOLOCK_INDEX(XIE1tEntAttrValue) 
+                                   where dg1.ResourceID = dg.ResourceID
+                                     and od.OperationID = dg1.DealTransactID
+                                     and od.CharType = 1
+                                     and eca.ObjectID = od.DealTransactID
+                                     and eca.InterfaceType = 0 
+                                     and eca.AttributeID = @CountListInAttachmentAttrID), 0)
+    from #DocGroup dg
+   where dg.MarkType  = 6
+  
+  -- По документам
+  update #DocGroup
+     set TotalSum = isnull((select sum(od.QtyBs)
+                              from #DocGroup dg1,
+                                   tOperPart od #M_NOLOCK_INDEX(XIE4tOperPart)
+                             where dg1.ResourceID = dg.ResourceID
+                               and od.DealTransactID = dg1.DealTransactID
+                               and od.CharType = case
+                                                   when @Grouping = 1 then 1
+                                                   else -1
+                                                 end), 0)
+    from #DocGroup dg
+   where dg.MarkType in (7, 24, 243)
+     
+  update #DocGroup
+     set QtyDTotal = isnull((select sum(od.Qty)
+                               from #DocGroup dg1,
+                                    tOperPart od #M_NOLOCK_INDEX(XIE4tOperPart)
+                              where dg1.ResourceID = dg.ResourceID
+                                and od.DealTransactID = dg1.DealTransactID
+                                and od.CharType = 1), 0)
+    from #DocGroup dg
+   where dg.MarkType in (7, 24, 243)
+
+  update #DocGroup
+     set QtyCTotal = isnull((select sum(od.Qty)
+                               from #DocGroup dg1,
+                                    tOperPart od #M_NOLOCK_INDEX(XIE4tOperPart)
+                              where dg1.ResourceID = dg.ResourceID
+                                and od.DealTransactID = dg1.DealTransactID
+                                and od.CharType = -1), 0)
+    from #DocGroup dg
+   where dg.MarkType in (7, 24, 243)
+
+  update #DocGroup
+     set AttachDocCntSum = isnull((select sum(convert(int, isnull(eca.Value, '0')))
+                                     from #DocGroup dg1,
+                                          tEntAttrValue eca #M_NOLOCK_INDEX(XIE1tEntAttrValue) 
+                                    where dg1.ResourceID = dg.ResourceID
+                                      and eca.ObjectID = dg1.DealTransactID
+                                      and eca.InterfaceType = 0 
+                                      and eca.AttributeID = @CountAttachmentAttrID), 0)
+    from #DocGroup dg
+   where dg.MarkType in (7, 24, 243)
+
+  update #DocGroup
+     set AttachPgCntSum = isnull((select sum(convert(int, isnull(eca.Value, '0')))
+                                    from #DocGroup dg1,
+                                         tEntAttrValue eca #M_NOLOCK_INDEX(XIE1tEntAttrValue) 
+                                   where dg1.ResourceID = dg.ResourceID
+                                     and eca.ObjectID = dg1.DealTransactID
+                                     and eca.InterfaceType = 0 
+                                     and eca.AttributeID = @CountListInAttachmentAttrID), 0)
+    from #DocGroup dg
+   where dg.MarkType in (7, 24, 243)
+--
+    
+  select @MaxResID    = isnull(max(op.ResourceID)    
+                              ,case 
+                                 when @Grouping = 1 --по Д
+                                 then max(dt.ResourceID)
+                                 else max(dt.ResourcePsvID)
+                               end
+                              )
+        ,@MinResID    = isnull(min(op.ResourceID)    
+                              ,case 
+                                 when @Grouping = 1 --по Д
+                                 then min(dt.ResourceID)
+                                 else min(dt.ResourcePsvID)
+                               end
+                              )                              
+        ,@MaxDate     = isnull(max(op.OperDate),max(dt.Date))
+        ,@MinDate     = isnull(min(op.OperDate),min(dt.Date))
+        ,@MaxType     = max(dm.Type)
+        ,@MinType     = min(dm.Type)
+        ,@TotalSum    = isnull(sum(op.QtyBs),sum(od.QtyBs))
+        ,@QtyDTotal   = case 
+                          when @Grouping = 1 --по Д
+                          then isnull(sum(op.Qty),sum(od.Qty))
+                          else isnull(sum(so.Qty),0)
+                        end        
+        ,@QtyCTotal   = case 
+                          when @Grouping = 1 --по Д
+                          then isnull(sum(so.Qty),0)
+                          else isnull(sum(op.Qty),sum(od.Qty)) 
+                        end
+        ,@MaxGSubdivisionID = max(isnull(r.SubdivisionID,0))                         
+        ,@MinGSubdivisionID = min(isnull(r.SubdivisionID,0))   
+        ,@MaxDSubdivisionID = max(isnull(sr.SubdivisionID,0))                         
+        ,@MinDSubdivisionID = min(isnull(sr.SubdivisionID,0))   
+        --комментарий всегда из дебетовой полупроводки тащим
+        ,@MaxComment       = case  
+                               when min(dm.Type) <> 6 --выделены документы 
+                               then isnull(ltrim(rtrim(max(dt.Comment))),'')
+                               when @Grouping = 1 --по Д
+                               then isnull(ltrim(rtrim(isnull(max(op.Comment),max(od.Comment)))),'')
+                               else isnull(ltrim(rtrim(max(so.Comment))),'')
+                             end
+        ,@MinComment       = case 
+                               when min(dm.Type) <> 6 --выделены документы 
+                               then isnull(ltrim(rtrim(min(dt.Comment))),'')
+                               when @Grouping = 1 --по Д
+                               then isnull(ltrim(rtrim(isnull(min(op.Comment),min(od.Comment)))),'')
+                               else isnull(ltrim(rtrim(min(so.Comment))),'')
+                             end
+        ,@MaxOpCode        = isnull(max(op.OpCode),max(dt.OpCode))
+        ,@MinOpCode        = isnull(min(op.OpCode),min(dt.OpCode))
+        ,@MaxCountAttachment        = max(convert(int, isnull(eca.Value, '0')))
+        ,@MinCountAttachment        = min(convert(int, isnull(eca.Value, '0')))
+        ,@MaxCountListInAttachment  = max(convert(int, isnull(ecla.Value, '0')))
+        ,@MinCountListInAttachment  = min(convert(int, isnull(ecla.Value, '0')))
+        ,@AttachDocCntSum           = sum(convert(int, isnull(eca.Value, '0')))
+        ,@AttachPgCntSum            = sum(convert(int, isnull(ecla.Value, '0')))        
+    from tDocMark  dm #M_NOLOCK_INDEX(XPKtDocMark)
+    left join tOperPart    op #M_NOLOCK_INDEX(XPKtOperPart)
+           on dm.Type = 6    
+          and dm.ID = op.OperationID
+          and op.CharType = case   --полупроводка группировки: группируем по Д - п/п по Д 
+                              when @Grouping = 1 --по Д
+                              then 1
+                              else -1
+                            end 
+    left join tDealTransact dt #M_NOLOCK_INDEX(XPKtDealTransact)
+           on dm.Type in (7, 24, 243) 
+          and dt.DealTransactID = dm.ID
+    left join tOperPart od #M_NOLOCK_INDEX(XIE4tOperPart)
+           on od.DealTransactID = dt.DealTransactID
+          and od.CharType = case   --полупроводка группировки, но под документом
+                              when @Grouping = 1 --по Д
+                              then 1
+                              else -1
+                            end
+    left join tResource r  #M_NOLOCK_INDEX(XPKtResource)
+           on r.ResourceID = isnull(op.ResourceID,od.ResourceID)
+   inner join tOperPart    so #M_NOLOCK_INDEX(XPKtOperPart)  --полупроводка деталей
+           on so.OperationID =  isnull(op.OperationID,od.OperationID) 
+          and so.CharType    = -isnull(op.CharType,od.CharType)    
+   inner join tResource     sr #M_NOLOCK_INDEX(XPKtResource)
+           on sr.ResourceID = so.ResourceID  
+    left join tEntAttrValue eca #M_NOLOCK_INDEX(XIE1tEntAttrValue) 
+           on eca.ObjectID = isnull(op.DealTransactID, dt.DealTransactID)
+          and eca.InterfaceType = 0 
+          and eca.AttributeID = @CountAttachmentAttrID
+    left join tEntAttrValue ecla #M_NOLOCK_INDEX(XIE1tEntAttrValue) 
+           on ecla.ObjectID = isnull(op.DealTransactID, dt.DealTransactID)
+          and ecla.InterfaceType = 0 
+          and ecla.AttributeID = @CountListInAttachmentAttrID
+           
+          
+   where dm.SPID = @@spid 
+     and dm.Type in (6, 7, 24, 243)
+     and (r.ResourceID is not null or isnull(op.ResourceID,od.ResourceID) is null)
+
+/*
+if @MaxResID > @MinResID 
+    insert pErrorLine(SPID,TextLine,Tag)
+    select @@spid,'В выделенных объектах отличается счет группировки. ' + 
+                  'Измените набор или параметры запуска отчета',''
+*/
+
+  if @MaxDate > @MinDate
+    insert pErrorLine(SPID,TextLine,Tag)
+    select @@spid,'В выделенных объектах отличаются даты. ' + 
+                  'Для режима группировки необходимо выбрать объекты с одинаковой датой',''
+
+  if @MaxType > @MinType
+    insert pErrorLine(SPID,TextLine,Tag)
+    select @@spid,'Выделены различные типы объектов. ' + 
+                  'Для режима группировки необходимо выбрать объекты одного типа',''
+
+/*
+  if @MaxComment > @MinComment
+    insert pErrorLine(SPID,TextLine,Tag)
+    select @@spid,'В выделенных объектах отличается комментарий. ' + 
+                  'Для режима группировки необходимо выбрать объекты с одинаковым комментарием',''
+*/          
+
+ --наименование отделение в Поле №5, заполняется, если по Д и по К отделение одинаковое
+  if @MaxGSubdivisionID = @MinDSubdivisionID
+ and @MinGSubdivisionID = @MinDSubdivisionID
+ and @MaxDSubdivisionID = @MinDSubdivisionID
+ and @MinDSubdivisionID <> 0
+   select @Field5 = isnull(ltrim(rtrim(i.Name)),'')
+     from tInstitution i #M_NOLOCK_INDEX(XPKtInstitution)    
+    where i.InstitutionID = @MinDSubdivisionID
+      and i.InstType = 3 --если Тип = отделение  
+ #M_ISOLAT
+end
+else
+  select @MaxOpCode                 = isnull(max(op.OpCode),max(dt.OpCode))
+        ,@MinOpCode                 = isnull(min(op.OpCode),min(dt.OpCode))
+        ,@MaxCountAttachment        = max(convert(int, isnull(eca.Value, '0')))
+        ,@MinCountAttachment        = min(convert(int, isnull(eca.Value, '0')))
+        ,@MaxCountListInAttachment  = max(convert(int, isnull(ecla.Value, '0')))
+        ,@MinCountListInAttachment  = min(convert(int, isnull(ecla.Value, '0')))
+    from tDocMark  dm #M_NOLOCK_INDEX(XPKtDocMark)
+    left join tOperPart    op #M_NOLOCK_INDEX(XPKtOperPart)
+           on dm.Type = 6    
+          and dm.ID = op.OperationID
+          and op.CharType = case   --полупроводка группировки: группируем по Д - п/п по Д 
+                              when @Grouping = 1 --по Д
+                              then 1
+                              else -1
+                            end 
+    left join tDealTransact dt #M_NOLOCK_INDEX(XPKtDealTransact)
+           on dm.Type in (7, 24, 243) 
+          and dt.DealTransactID = dm.ID
+    left join tEntAttrValue eca #M_NOLOCK_INDEX(XIE1tEntAttrValue) 
+           on eca.ObjectID = isnull(op.DealTransactID, dt.DealTransactID)
+          and eca.InterfaceType = 0 
+          and eca.AttributeID = @CountAttachmentAttrID
+    left join tEntAttrValue ecla #M_NOLOCK_INDEX(XIE1tEntAttrValue) 
+           on ecla.ObjectID = isnull(op.DealTransactID, dt.DealTransactID)
+          and ecla.InterfaceType = 0 
+          and ecla.AttributeID = @CountListInAttachmentAttrID          
+   where dm.SPID = @@spid 
+     and dm.Type in (6, 7, 24, 243)          
+ #M_ISOLAT
+ 
+if isnull(@MaxOpCode, 0) <> 9 or isnull(@MinOpCode, 0) <> 9
+  insert pErrorLine(SPID, TextLine, Tag)
+  select @@spid, 'В выделенных объектах вид операции отличается от 09', ''
+  
+/*
+if (isnull(@MinCountAttachment, 0) <> 0 and isnull(@MaxCountAttachment, 0) = 0)
+   or
+   (isnull(@MinCountAttachment, 0) = 0 and isnull(@MaxCountAttachment, 0) <> 0)
+   or
+   (isnull(@MinCountAttachment, 0) = 0 and isnull(@MaxCountAttachment, 0) = 0 and isnull(convert(int, @AttachDocCnt), 0) = 0)
+  insert pErrorLine(SPID, TextLine, Tag)
+  select @@spid, 'Формирование ордера не возможно. Не указаны значения поля "Приложение___документов"', ''
+   
+if (isnull(@MinCountListInAttachment, 0) <> 0 and isnull(@MaxCountListInAttachment, 0) = 0)
+   or
+   (isnull(@MinCountListInAttachment, 0) = 0 and isnull(@MaxCountListInAttachment, 0) <> 0)
+   or
+   (isnull(@MinCountListInAttachment, 0) = 0 and isnull(@MaxCountListInAttachment, 0) = 0 and isnull(convert(int, @AttachPgCnt), 0) = 0)
+  insert pErrorLine(SPID, TextLine, Tag)
+  select @@spid, 'Формирование ордера не возможно. Не указаны значения поля "На___листах"', ''  
+*/
+                
+select @ErrorsCount = count(*) 
+  from pErrorLine #M_NOLOCK_INDEX(XIE0pErrorLine)
+ where SPID = @@spid
+
+--< вывод сообщений об ошибках
+        
+declare @OurName   varchar(160)
+       ,@OurINN    varchar(20)
+       ,@OurBankID DSIDENTIFIER
+       
+select @OurName   = i.Name         
+      ,@OurINN    = i.INN
+      ,@OurBankID = i.InstitutionID 
+  from tConfigParam    cp    #M_NOLOCK_INDEX(XPKtConfigParam)
+      ,tInstitution    i     #M_NOLOCK_INDEX(XPKtInstitution)
+ where cp.Type = 11
+   and i.InstitutionID = cp.ID
+#M_ISOLAT  
+     
+if (@Shtamp2=1 and @Shtamp1=1)
+begin
+   select @Shtamp2=0
+end   
+          
+declare @monthname  varchar(255)
+select @monthname = 'января  февраля марта   aпреля  мая     июня    июля    августа сентябряоктября ноября  декабря'       
+                 
+-- ***** tOperPart
+select case 
+         when @Grouping <> 0 then (-1) * dg.ResourceID
+         else dm.ID 
+       end                                              as OrderID
+      ,case @Grouping
+         when 1 then -1
+         when 2 then -2
+         else 0
+       end                                              as Grouping
+      ,opd.OperDate                                     as Date
+      ,DateStr = replicate('0',2-datalength(convert(varchar(2),datepart(dd,opd.OperDate))))
+                +rtrim(convert(char(2),datepart(dd,opd.OperDate)))+' '
+                +rtrim(ltrim(substring(@monthname,(datepart(mm,opd.OperDate)-1)*8+1,8)))+' '
+                +convert(char(4),datepart(yy,opd.OperDate))+' года'
+      ,isnull(dg.Number, rtrim(ltrim(opd.Number)))      as Number
+      ,opd.Qty                                          as QtyD
+      ,opc.Qty                                          as QtyC
+      ,opd.QtyBs                                        as QtyBs
+      ,isnull(dg.TotalSum, opd.QtyBs)                    as TotalSum
+      ,isnull(dg.QtyDTotal, opd.Qty)                    as QtyDTotal
+      ,isnull(dg.QtyCTotal, opc.Qty)                    as QtyCTotal
+      ,substring(rtrim(opd.Comment)+opc.Comment,1,255)  as Note
+      ,opd.OpCode                                       as OpCode
+      ,isnull(dt.Priority,20)                           as Priority  
+      ,case convert(int,rd.Settings) & 1
+         when 0 then id.INN 
+         else bd.INN
+       end                                              as PayCltINN
+      ,rd.Name                                          as DebetName
+      ,rd.Brief                                         as DebetAccount
+      ,bd.BIC                                           as BIC
+      ,substring(bd.Name, 1,58)                         as Name1
+      ,substring(bd.Name,59,58)                         as Name2
+      ,bd.Name + ' г. ' + C.Brief                       as Bank
+      ,bd.AccRcv                                        as Res
+      ,case convert(int,rc.Settings) & 1
+         when 0 then ic.INN 
+         else bc.INN
+       end                                              as CltINN
+      ,rc.Name                                          as CreditName
+      ,rc.Brief                                         as CreditAccount
+      ,fd.Number                                        as FundD
+      ,fc.Number                                        as FundC
+      ,opd.OperDate                                     as TermDate
+      ,C.Name                                           as Town
+      ,1                                                as NumSelect
+      ,(select count(1)
+                 from tTripRelation tr   #M_NOLOCK_INDEX (XAK1tTripRelation),
+                      tTrip         t    #M_NOLOCK_INDEX (XPKtTrip),
+                      tInstrument   i    #M_NOLOCK_INDEX (XPKtInstrument),
+                      tRegisterDoc  rd   #M_NOLOCK_INDEX (XPKtRegisterDoc)
+                where opd.DealTransactID = tr.DealTransactID
+                  and tr.TripID = t.TripID
+                  and t.InstrumentID = i.InstrumentID
+                  and i.Brief = 'СПОД'
+                  and t.RegisterDocID = rd.RegisterDocID
+                  and rd.Brief = 'СПОД'
+                )                                        as Trip
+      ,@Shtamp1                                          as Shtamp1
+      ,@Shtamp2                                          as Shtamp2
+      ,u.FIOBrief                                        as AccUser
+      ,u2.FIOBrief                                       as DocUser
+      ,substring(rd.Brief,1,8)+substring(rd.Brief,10,11) as DACCwoK
+      ,isnull(ltrim(rtrim(i1.Name)) + ' ','') +
+       isnull(ltrim(rtrim(i2.Name)) + ' ','') +
+       isnull(ltrim(rtrim(i3.Name)) + ' ','')            as Author
+     ,(case @ShowField5
+       when 0 then isnull(ltrim(rtrim(sdv.Name)),@Field5)
+       else ''
+       end)                                             as Field5
+      ,case 
+         when @Grouping <> 0 then @CommentStr
+         else isnull(@MaxComment, ltrim(rtrim(opd.Comment)))
+       end                                               as Comment       
+      ,opd.QtyBs * @Sorting                              as SortQty 
+      ,@Correctional                                     as Correctional
+      ,case
+         when @Grouping <> 0 then isnull(convert(varchar, nullif(dg.AttachDocCntSum, 0)), @AttachDocCnt)
+         else isnull(convert(varchar, nullif(convert(int, eca.Value), 0)), @AttachDocCnt)
+       end                                               as AttachDocCnt
+      ,case
+         when @Grouping <> 0 then isnull(convert(varchar, nullif(dg.AttachPgCntSum, 0)), @AttachPgCnt)
+         else isnull(convert(varchar, nullif(convert(int, ecla.Value), 0)), @AttachPgCnt)
+       end                                               as AttachPgCnt
+      ,rd.AccOrder                                       as DebetAccOrder
+      ,rc.AccOrder                                       as CreditAccOrder
+      ,case 
+         when @Grouping <> 0 then @Field20
+         else isnull(efl20.Value, @Field20)
+       end                                               as Field20
+      ,@SignStr                                          as SignStr
+  from tDocMark  dm #M_NOLOCK_INDEX(XPKtDocMark)
+ inner join tOperPart    opd #M_NOLOCK_INDEX(XPKtOperPart)
+         on dm.SPID = @@spid   
+        and dm.Type = 6 
+        and dm.ID = opd.OperationID
+        and opd.CharType =  1
+        and @ErrorsCount = 0    
+ inner join #DocGroup dg
+         on dg.DealTransactID  = dm.ID
+        and dg.MarkType = 6        
+ inner join tOperPart    opc #M_NOLOCK_INDEX(XPKtOperPart)
+         on opc.OperationID = opd.OperationID
+        and opc.CharType = -1    
+ inner join tResource     rd #M_NOLOCK_INDEX(XPKtResource)
+         on opd.ResourceID   = rd.ResourceID  
+ inner join tResource     rc #M_NOLOCK_INDEX(XPKtResource)
+         on opc.ResourceID   = rc.ResourceID
+ inner join tInstitution  id #M_NOLOCK_INDEX(XPKtInstitution)
+         on rd.InstOwnerID   = id.InstitutionID 
+ inner join tInstitution  ic #M_NOLOCK_INDEX(XPKtInstitution)
+         on rc.InstOwnerID   = ic.InstitutionID  
+ inner join tInstitution  bd #M_NOLOCK_INDEX(XPKtInstitution)
+         on bd.InstitutionID = rd.InstitutionID
+ inner join tInstitution  bc #M_NOLOCK_INDEX(XPKtInstitution)
+         on bc.InstitutionID = rc.InstitutionID
+  left join tCountry      C  #M_NOLOCK_INDEX(XPKtCountry)
+         on C.CountryID      = bd.InstGroupID 
+ inner join tCurrency     fd #M_NOLOCK_INDEX(XPKtCurrency)
+         on opd.FundID       = fd.CurrencyID
+ inner join tCurrency     fc #M_NOLOCK_INDEX(XPKtCurrency)
+         on opc.FundID       = fc.CurrencyID 
+  left join tDealTransact dt #M_NOLOCK_INDEX(XPKtDealTransact)
+         on dt.DealTransactID = opd.DealTransactID
+  left join tUser         u  #M_NOLOCK_INDEX(XPKtUser)
+         on u.UserID         = rd.UserMainID  
+ inner join tUser         u2 #M_NOLOCK_INDEX(XPKtUser)
+         on u2.UserID        = opd.UserID 
+  left join tInstAddress  ia #M_NOLOCK_INDEX(XIE1tInstAddress)
+         on bd.InstitutionID = ia.InstitutionID
+        and ia.AddressTypeID = 2 
+        and ia.Sign = 0
+ inner join tInstitution i3 #M_NOLOCK_INDEX(XPKtInstitution)
+         on i3.InstitutionID = isnull(opd.InstitutionID, dt.InstitutionID)
+  left join tInstitution i2 #M_NOLOCK_INDEX(XPKtInstitution)
+         on i2.InstitutionID = i3.ParentID
+        and i3.InstitutionID <> @OurBankID
+  left join tInstitution i1 #M_NOLOCK_INDEX(XPKtInstitution)
+         on i1.InstitutionID = i2.ParentID
+        and i2.InstitutionID <> @OurBankID
+  left join tInstitution sdv #M_NOLOCK_INDEX(XPKtInstitution)    
+         on sdv.InstitutionID = rd.SubdivisionID
+        and sdv.InstitutionID = rc.SubdivisionID 
+  left join tEntAttrValue eca #M_NOLOCK_INDEX(XIE1tEntAttrValue) 
+         on eca.ObjectID = opd.DealTransactID
+        and eca.InterfaceType = 0 
+        and eca.AttributeID = @CountAttachmentAttrID
+        and @Grouping = 0       
+  left join tEntAttrValue ecla #M_NOLOCK_INDEX(XIE1tEntAttrValue) 
+         on ecla.ObjectID = opd.DealTransactID
+        and ecla.InterfaceType = 0 
+        and ecla.AttributeID = @CountListInAttachmentAttrID
+        and @Grouping = 0       
+  left join tEntAttrValue efl20 #M_NOLOCK_INDEX(XIE1tEntAttrValue) 
+         on efl20.ObjectID = opd.DealTransactID
+        and efl20.InterfaceType = 0 
+        and efl20.AttributeID = @Field20AttrID
+union all
+-- ***** tDealTransact    
+select case 
+         when @Grouping <> 0 then (-1) * max(dg.ResourceID)
+         else dm.ID 
+       end                                              as OrderID
+      ,case @Grouping
+         when 1 then -1
+         when 2 then -2
+         else 0
+       end                                              as Grouping
+      ,max(dt.Date)                                     as Date
+      ,DateStr = replicate('0',2-datalength(convert(varchar(2),datepart(dd,max(dt.Date)))))
+                +rtrim(convert(char(2),datepart(dd,max(dt.Date))))+' '
+                +rtrim(ltrim(substring(@monthname,(datepart(mm,max(dt.Date))-1)*8+1,8)))+' '
+                +convert(char(4),datepart(yy,max(dt.Date)))+' года'
+      ,isnull(max(dg.Number), max(rtrim(ltrim(dt.DocNumber)))) as Number
+      ,max(dt.FixQty)                                   as QtyD
+      ,max(dt.Qty)                                      as QtyC
+      ,sum(op.QtyBs)                                    as QtyBs
+      ,isnull(max(dg.TotalSum), sum(op.QtyBs))          as TotalSum
+      ,isnull(max(dg.QtyDTotal), max(dt.FixQty))        as QtyDTotal
+      ,isnull(max(dg.QtyCTotal), max(dt.Qty))           as QtyCTotal
+      ,max(rtrim(dt.Comment))                           as Note
+      ,max(dt.OpCode)                                   as OpCode
+      ,max(dt.Priority)                                 as Priority 
+      ,case convert(int,max(rd.Settings)) & 1
+         when 0 then max(id.INN) 
+         else max(bd.INN)
+       end                                              as PayCltINN
+      ,max(rd.Name)                                     as DebetName
+      ,max(rd.Brief)                                    as DebetAccount
+      ,max(bd.BIC)                                      as BIC
+      ,substring(max(bd.Name), 1,58)                    as Name1
+      ,substring(max(bd.Name),59,58)                    as Name2
+      ,max(bd.Name) + ' г. ' + max(C.Brief)             as Bank
+      ,max(bd.AccRcv)                                   as Res
+      ,case convert(int,max(rc.Settings)) & 1
+         when 0 then max(ic.INN) 
+         else max(bc.INN)
+       end                                              as CltINN
+      ,max(rc.Name)                                     as CreditName
+      ,max(rc.Brief)                                    as CreditAccount
+      ,max(fd.Number)                                   as FundD
+      ,max(fc.Number)                                   as FundC
+      ,max(dt.DocDate)                                  as TermDate
+      ,max(C.Name)                                      as Town
+      ,2                                                as NumSelect
+      ,(select count(1) 
+                     from tTripRelation tr   #M_NOLOCK_INDEX (XAK1tTripRelation),
+                          tTrip         t    #M_NOLOCK_INDEX (XPKtTrip),
+                          tInstrument   i    #M_NOLOCK_INDEX (XPKtInstrument),
+                          tRegisterDoc  rd   #M_NOLOCK_INDEX (XPKtRegisterDoc)
+                    where dt.DealTransactID = tr.DealTransactID
+                      and tr.TripID = t.TripID
+                      and t.InstrumentID = i.InstrumentID
+                      and i.Brief = 'СПОД'
+                      and t.RegisterDocID = rd.RegisterDocID
+                      and rd.Brief = 'СПОД'
+                   )                                     as Trip
+      ,@Shtamp1                                          as Shtamp1
+      ,@Shtamp2                                          as Shtamp2
+      ,max(u.FIOBrief)                                   as AccUser
+      ,max(u2.FIOBrief)                                  as DocUser
+      ,substring(max(rd.Brief),1,8)+substring(max(rd.Brief),10,11) as DACCwoK
+      ,isnull(ltrim(rtrim(max(i1.Name))) + ' ','') +
+       isnull(ltrim(rtrim(max(i2.Name))) + ' ','') +
+       isnull(ltrim(rtrim(max(i3.Name))) + ' ','')       as Author
+      ,(case @ShowField5
+        when 0 then isnull(ltrim(rtrim(max(sdv.Name))),@Field5)
+        else ''
+        end)                                             as Field5    
+      ,case 
+         when @Grouping <> 0 then @CommentStr
+         else isnull(@MaxComment, ltrim(rtrim(max(dt.Comment))))         
+       end                                               as Comment
+      ,sum(op.QtyBs) * @Sorting                          as SortQty       
+      ,@Correctional                                     as Correctional
+      ,case
+         when @Grouping <> 0 then isnull(convert(varchar, nullif(max(dg.AttachDocCntSum), 0)), @AttachDocCnt)
+         else isnull(convert(varchar, nullif(convert(int, max(eca.Value)), 0)), @AttachDocCnt)
+       end                                               as AttachDocCnt
+      ,case
+         when @Grouping <> 0 then isnull(convert(varchar, nullif(max(dg.AttachPgCntSum), 0)), @AttachPgCnt)
+         else isnull(convert(varchar, nullif(convert(int, max(ecla.Value)), 0)), @AttachPgCnt)
+       end                                               as AttachPgCnt
+      ,max(rd.AccOrder)                                  as DebetAccOrder
+      ,max(rc.AccOrder)                                  as CreditAccOrder
+      ,case 
+         when @Grouping <> 0 then @Field20
+         else max(isnull(efl20.Value, @Field20))
+       end                                               as Field20      
+      ,@SignStr                                          as SignStr
+  from tDocMark  dm #M_NOLOCK_INDEX(XPKtDocMark)
+ inner join tDealTransact dt #M_NOLOCK_INDEX(XPKtDealTransact)
+         on dm.SPID = @@spid   
+        and dm.Type in (7, 24, 243) 
+        and dm.ID = dt.DealTransactID 
+        and @ErrorsCount = 0 
+ inner join #DocGroup dg
+         on dg.DealTransactID  = dm.ID
+        and dg.MarkType in (7, 24, 243)
+ inner join tInstrument  ins #M_NOLOCK_INDEX(XPKtInstrument  )
+         on ins.InstrumentID      = dt.InstrumentID
+--        and ins.InterfaceObjectID =  @IntObjectID   --только внутрдокум 
+ inner join tOperPart     op #M_NOLOCK_INDEX(XIE4tOperPart)
+         on op.DealTransactID = dm.ID
+        and op.CharType = 1
+        and op.Qty <> 0 
+ inner join tResource r  #M_NOLOCK_INDEX(XPKtResource)
+         on r.ResourceID = op.ResourceID
+ inner join tResource     rd #M_NOLOCK_INDEX(XPKtResource)
+         on dt.ResourceID    = rd.ResourceID
+ inner join tResource     rc #M_NOLOCK_INDEX(XPKtResource)
+         on dt.ResourcePsvID = rc.ResourceID
+ inner join tInstitution  id #M_NOLOCK_INDEX(XPKtInstitution)
+         on rd.InstOwnerID   = id.InstitutionID
+ inner join tInstitution  ic #M_NOLOCK_INDEX(XPKtInstitution)
+         on rc.InstOwnerID   = ic.InstitutionID  
+ inner join tInstitution  bd #M_NOLOCK_INDEX(XPKtInstitution)
+         on bd.InstitutionID = rd.InstitutionID
+ inner join tInstitution  bc #M_NOLOCK_INDEX(XPKtInstitution)
+         on bc.InstitutionID = rc.InstitutionID
+  left join tCountry      C  #M_NOLOCK_INDEX(XPKtCountry)
+         on C.CountryID      = bd.InstGroupID  
+ inner join tCurrency     fd #M_NOLOCK_INDEX(XPKtCurrency)
+         on rd.FundID        = fd.CurrencyID
+ inner join tCurrency     fc #M_NOLOCK_INDEX(XPKtCurrency)
+         on rc.FundID        = fc.CurrencyID
+  left join tUser         u  #M_NOLOCK_INDEX(XPKtUser)
+         on u.UserID         = rd.UserMainID 
+ inner join tUser         u2 #M_NOLOCK_INDEX(XPKtUser)
+         on u2.UserID        = dt.UserID 
+  left join tInstAddress  ia #M_NOLOCK_INDEX(XIE1tInstAddress)
+         on bd.InstitutionID = ia.InstitutionID
+        and ia.AddressTypeID = 2  
+        and ia.Sign = 0
+ inner join tInstitution i3 #M_NOLOCK_INDEX(XPKtInstitution)
+         on i3.InstitutionID = dt.InstitutionID
+  left join tInstitution i2 #M_NOLOCK_INDEX(XPKtInstitution)
+         on i2.InstitutionID = i3.ParentID
+        and i3.InstitutionID <> @OurBankID
+  left join tInstitution i1 #M_NOLOCK_INDEX(XPKtInstitution)
+         on i1.InstitutionID = i2.ParentID
+        and i2.InstitutionID <> @OurBankID
+  left join tInstitution sdv #M_NOLOCK_INDEX(XPKtInstitution)    
+         on sdv.InstitutionID = rd.SubdivisionID
+        and sdv.InstitutionID = rc.SubdivisionID 
+  left join tEntAttrValue eca #M_NOLOCK_INDEX(XIE1tEntAttrValue) 
+         on eca.ObjectID = dt.DealTransactID
+        and eca.InterfaceType = 0 
+        and eca.AttributeID = @CountAttachmentAttrID
+  left join tEntAttrValue ecla #M_NOLOCK_INDEX(XIE1tEntAttrValue) 
+         on ecla.ObjectID = dt.DealTransactID
+        and ecla.InterfaceType = 0 
+        and ecla.AttributeID = @CountListInAttachmentAttrID
+  left join tEntAttrValue efl20 #M_NOLOCK_INDEX(XIE1tEntAttrValue) 
+         on efl20.ObjectID = dt.DealTransactID
+        and efl20.InterfaceType = 0 
+        and efl20.AttributeID = @Field20AttrID
+ group by dm.ID, dt.DealTransactID
+ union all
+-- ***** nulls    
+select null as OrderID      
+      ,null as Grouping
+      ,null as Date                                   
+      ,null as DateStr 
+      ,null as Number
+      ,null as QtyD
+      ,null as QtyC
+      ,null as QtyBs
+      ,null as TotalSum        
+      ,null as QtyDTotal       
+      ,null as QtyCTotal       
+      ,null as Note            
+      ,null as OpCode          
+      ,null as Priority        
+      ,null as PayCltINN       
+      ,null as DebetName       
+      ,null as DebetAccount    
+      ,null as BIC             
+      ,null as Name1           
+      ,null as Name2           
+      ,null as Bank            
+      ,null as Res             
+      ,null as CltINN          
+      ,null as CreditName      
+      ,null as CreditAccount   
+      ,null as FundD           
+      ,null as FundC           
+      ,null as TermDate        
+      ,null as Town            
+      ,null as NumSelect       
+      ,null as Trip            
+      ,null as Shtamp1         
+      ,null as Shtamp2         
+      ,null as AccUser         
+      ,null as DocUser         
+      ,null as DACCwoK         
+      ,null as Author          
+      ,null as Field5          
+      ,null as Comment         
+      ,null as SortQty         
+      ,null as Correctional    
+      ,null as AttachDocCnt    
+      ,null as AttachPgCnt  
+      ,null as DebetAccOrder
+      ,null as CreditAccOrder
+      ,null as Field20
+      ,null as SignStr
+  from (select 1 as a) t
+ where not exists (select 1
+                     from tDocMark  dm #M_NOLOCK_INDEX(XPKtDocMark)                  
+                    where dm.SPID = @@spid                                      
+                      and dm.Type = 6                               
+                      and @ErrorsCount = 0)
+   and not exists (select 1
+                     from tDocMark  dm #M_NOLOCK_INDEX(XPKtDocMark)       
+                    inner join tDealTransact dt #M_NOLOCK_INDEX(XPKtDealTransact)            
+                            on dm.SPID = @@spid                                              
+                           and dm.Type in (7, 24, 243)                                       
+                           and dm.ID = dt.DealTransactID                                     
+                           and @ErrorsCount = 0                                              
+/*                           
+                    inner join tInstrument  ins #M_NOLOCK_INDEX(XPKtInstrument  )            
+                            on ins.InstrumentID      = dt.InstrumentID                       
+                           and ins.InterfaceObjectID =  @IntObjectID   --только внутрдокум   
+*/                           
+                  )
+                
+ order by SortQty, DebetAccOrder, CreditAccOrder, QtyBs 
+                
+#M_ISOLAT
+#M_FORCEORDER
+
+drop table #DocGroup
+drop table #DocGroupNum
+}
+
+[Field]
+
+@FullDate.............@        = Field{DateStr,@s23^}
+@Bank........................@ = Field{Bank,@s30^,WRAP}
+@Bank@ = Field{Bank,@s255t}
+@AccUser.....................@ = Field{AccUser,@s30^,WRAP}
+@DocUser.....................@ = Field{DocUser,@s30^,WRAP}
+@AccUser@ = Field{AccUser,@s255t}
+@DocUser@ = Field{DocUser,@s255t}
+
+@OrderID......@ = Field{OrderID,@n-_15,MIN} //значение -1 = группировка по Д, значение -2 = по К 
+@Grouping.....@ = Field{Grouping,@n-_15,MIN} //значение -1 = группировка по Д, значение -2 = по К 
+@Page@ = Field{Page,@n_15}
+
+@Date....@=Field{Date,@d6.}
+@TermDate@=Field{TermDate,@d6.}
+@Number........@=Field{Number,@s16^,NONE}
+@QtyD............@ = Field{QtyD  ,@n_18-2t,NONE}    
+@QtyC............@ = Field{QtyC  ,@n_18-2t,NONE}
+@QtyBs...........@ = Field{QtyBs ,@n_18-2,NONE}  
+@QtyCTotal.......@ = Field{QtyCTotal  ,@n_18-2t,NONE} //считается в переменную при группировке 
+@QtyDTotal.......@ = Field{QtyDTotal  ,@n_18-2t,NONE} //считается в переменную при группировке 
+@TotalSum........@ = Field{TotalSum ,@n_18-2,NONE}    //считается в переменную при группировке 
+
+@QtyWrD@  = TxtSumField{@QtyD............@,@s94t,NONE,"@D@",WRAP}
+@QtyWrC@  = TxtSumField{@QtyC2...........@,@s255t,SUM,"@C@"}
+@QtyWrBs@ = TxtSumField{@TotalSum........@,@s255t,SUM,"810"}
+
+@QtyWrDСумма.прописью1......................................................................@ = ExprField{WordWrap("@QtyWrD@",,93,,1),@s93}
+@QtyWrDСумма.прописью2......................................................................@ = ExprField{WordWrap("@QtyWrD@",,93,,2),@s93}
+@QtyWrDСумма.прописью3......................................................................@ = ExprField{WordWrap("@QtyWrD@",,93,,3),@s93}
+
+@QtyWrCСумма.прописью1..............................................................@ = ExprField{WordWrap("@QtyWrC@",,85,,1),@s85}
+@QtyWrCСумма.прописью2..............................................................@ = ExprField{WordWrap("@QtyWrC@",,85,,2),@s85}
+@QtyWrCСумма.прописью3..............................................................@ = ExprField{WordWrap("@QtyWrC@",,85,,3),@s85}
+
+@QtyWrBsСумма.прописью1.............................................................@ = ExprField{WordWrap("@QtyWrBs@",,85,,1),@s85}
+@QtyWrBsСумма.прописью2.............................................................@ = ExprField{WordWrap("@QtyWrBs@",,85,,2),@s85}
+@QtyWrBsСумма.прописью3.............................................................@ = ExprField{WordWrap("@QtyWrBs@",,85,,3),@s85}
+
+@Назначение.платежа......................................................................................@ = Field{Note,@s106,WRAP}
+@Comment@ = Field{Comment,@s255t}
+@Comment1.................................................................................................@ = ExprField{WordWrap("@Comment@",,107,,1),@s107}                          
+@Comment2.................................................................................................@ = ExprField{WordWrap("@Comment@",,107,,2),@s107}                                                                                        
+        
+@OpC@=Field{OpCode,@n5}
+@P@=Field{Priority,@n_3}
+@Author.......................................................................@=Field{Author,@s79<,WRAP}
+@Author@=Field{Author,@s255t}
+@LABLE.LINE.........@=Field{'ђ”””””””””””””””””””‰',@s21}
+@Field5...................................................................................................@=Field{Field5,@s107,WRAP}
+@Field5@=Field{Field5,@s255t}
+
+@PayCltINN....@=Field{PayCltINN,@s15}
+@PayCltName1.............................................@=Field{PayCltName1,@s58}
+@PayCltName2.............................................@=Field{PayCltName2,@s58}
+@PayCltRes.........@=Field{PayCltRes,@s20}
+@PayRes............@=Field{PayRes,@s20}
+@BIC..........@=Field{BIC,@s15}
+@Res...............@=Field{Res,@s20}
+@Name1...................................................@=Field{Name1,@s58}
+@Name2...................................................@=Field{Name2,@s58}
+
+@DebetName...................................@=Field{DebetName,@s46,WRAP}
+@DebetAccount......@=Field{DebetAccount,@s20}  
+@CreditName..................................@=Field{CreditName,@s46,WRAP}
+@CreditAccount.....@=Field{CreditAccount,@s20}
+        
+@DebetName@=Field{DebetName,@s255}
+@CreditName@=Field{CreditName,@s255}
+        
+@CltINN.......@=Field{CltINN,@s15}
+@CltName1................................................@=Field{CltName1,@s58}
+@CltName2................................................@=Field{CltName2,@s58}
+@CltRes............@=Field{CltRes,@s20}
+@Dt@=Field{FundD,@s3}
+@Ct@=Field{FundC,@s3}
+@MOCaption......................@=ExprField{Correctional=1!"МЕМОРИАЛЬНЫЙ ИСПРАВИТЕЛЬНЫЙ ОРДЕР":"МЕМОРИАЛЬНЫЙ ОРДЕР",@s33>}
+@AttachDocCnt@=Field{AttachDocCnt=""!"___":AttachDocCnt,@s10t}       
+@AttachPgCnt@=Field{AttachPgCnt=""!"___":AttachPgCnt,@s10t}       
+@D@=Field{FundD,@s3}  
+@C@=Field{FundC,@s3}  
+@bDb@=Field{"("+FundD+")",@s5}  
+@bCb@=Field{"("+FundC+")",@s5}  
+@Town............................................@=Field{Town,@s50}
+@Trip.............@=Field{Trip,@n-_19.3} 
+
+@Field20@ = Field{Field20, @s255t}
+@Field20_1................................................................................................@ = ExprField{WordWrap("@Field20@",,107,,1),@s107}
+@Field20_2................................................................................................@ = ExprField{WordWrap("@Field20@",,107,,2),@s107}
+@Field20_3................................................................................................@ = ExprField{WordWrap("@Field20@",,107,,3),@s107}
+
+
+@CntOnPage@=Field{CntOnPage,@n_3,NONE}
+@cnt@=Field{,@n_4,ACNT}
+@cnt2@=ExprField{round(@cnt@/2,,0)*2,@n_7}
+
+@PS@=PrinterSetup{PORTRAIT, , , , ,Courier New Cyr DS2,8}
+@PL@=PageLayout{92, , , ,Record}
+@PL1@=PageLayout{89, , , ,Record} 
+@PL2@=PageLayout{50000, , , ,Record}
+@Truncate@ = TruncateBlank{ } 
+
+@SignStr@     = Field{SignStr, @s255t}
+
+@Sht@=Field{Shtamp1,@n-_5,NONE}
+@Sht2@=Field{Shtamp2,@n-_5,NONE}
+
+@ShowErrors@=SQLInfo{True}
+
+@T@=Field{,@n_3,PAGECNT}
+@L@=Field{,@n_3,ALLPAGECNT}
+
+@OrderIDchg@=Field{OrderID,@n1,CHANGED}
+
+//@RunToWord@        = OnReportComplete{WinExec(FilePath + "ToWord.bat MOMultiAccW.doc"),@s30} 
+@RunToWord@        = OnReportComplete{WinExec(FilePath + "ToWord.bat " + rep),@s30}  
+@RunXmlFormatting@ = OnReportComplete{WinExec(FilePath + "MOMultiAcc.bat MOMultiAccW.txt"),@s30}
+@FilterTxt@ =ReportFilter{Format=0,@SQL_Params@}
+@FilterWord@=ReportFilter{Format=1,@SQL_Params@}
+
+@Dop0@   = ReportFilter{Dop = 0,@SQL_Params@}
+@Dop1@   = ReportFilter{Dop = 1,@SQL_Params@}   
+@Group0@ = ReportFilter{Grouping  = 0,@SQL_Params@}   
+@Group@  = ReportFilter{Grouping  > 0,@SQL_Params@}  
+
+@Format@=Field{Format,@n1,NONE}
+
+[File]
+@FileNameForWord@=FileName{MOMultiAccW.txt}
+@NotShowResultWindow@=PreviewForm{True}
+ 
+
+&&
+#@SQL_Params@
+$T                                                                  
+$
+&
+//#@PL@
+#@FilterTxt@
+#@Dop0@
+#@ShowErrors@
+#@SQL_Main@
+#@PS@
+$@OrderID......@{TRUE} 
+                                                                                       Љ”””””””””””””””””””Ї
+                                                                                       ЈКод формы документаЈ
+                                                                                       Ј     по ОКУД       Ј
+                                                                                       “”””””””””””””””””””¤
+                                                                                       Ј     0401108       Ј
+        @Author.......................................................................@@LABLE.LINE.........@
+        ______________________________________________________________________________
+        Составитель
+#IF @Trip.............@ > 0 #THEN
+                                                                                       Љ””””””””””Ї 
+#ELSE
+
+#ENDIF
+        @MOCaption......................@ N @Number........@  @Date....@              #IF @Trip.............@ > 0 #THEN  Ј   СПОД   Ј #ENDIF                             
+                                            ________________  ____________            #IF @Trip.............@ > 0 #THEN  ђ””””””””””‰ #ENDIF
+                                                                  Дата
+        @Field5...................................................................................................@                
+
+        ””””””””””””””””””””””””””””””””””””””””””””””’””””””””””””””””””””””’”””””””””””””””””””””””””””””””””””””
+         Наименование счета                           Ј     Дебет счета      Ј            Сумма цифрами            
+        _____________________________________________ Ј ____________________ “””””””””””””””””””’””””””””””””””””””
+#IF @Grouping.....@ = -1 #THEN    //группировка по Д
+        @DebetName...................................@Ј @DebetAccount......@ Ј@TotalSum........@Ј#IF "@D@"<>"810"&"@D@"<>"643" #THEN @QtyD............@ @bDb@#ENDIF                                         
+        ””””””””””””””””””””””””””””””””””””””””””””””•””””””””””””””””””””””¤                  Ј
+         Наименование счета                           Ј     Кредит счета     Ј                  Ј    
+        _____________________________________________ Ј ____________________ “””””””””””””””””””•””””””””””””””””””
+#ENDIF                                                                                          
+$T                                                                  
+#IF @OrderIDchg@=0                                                                                     
+        _____________________________________________ Ј ____________________ Ј ________________ Ј ________________
+#ENDIF        
+#IF @Grouping.....@ = -1 #THEN    //группировка по Д
+        @CreditName..................................@Ј @CreditAccount.....@ Ј@QtyBs...........@Ј#IF "@C@"<>"810"&"@C@"<>"643" #THEN @QtyC............@ @bCb@#ENDIF                                         
+#ELSE                                                      
+        @DebetName...................................@Ј @DebetAccount......@ Ј@QtyBs...........@Ј#IF "@D@"<>"810"&"@D@"<>"643" #THEN @QtyD............@ @bDb@#ENDIF                                         
+#ENDIF        
+$
+#IF @Grouping.....@ = -1 #THEN    //группировка по Д
+#ELSE                                                      
+        ””””””””””””””””””””””””””””””””””””””””””””””•””””””””””””””””””””””¤                  Ј
+         Наименование счета                           Ј     Кредит счета     Ј                  Ј
+        _____________________________________________ Ј ____________________ Ј                  Ј
+        @CreditName..................................@Ј @CreditAccount.....@ Ј@TotalSum........@Ј#IF "@C@"<>"810"&"@C@"<>"643" #THEN @QtyC............@ @bCb@#ENDIF                                           
+#ENDIF        
+        ””””””””””””””””””””””””””””””””””””””””””””””‘””””””””””””””””””””””‘”””””””””””””””’””‘””””””””””’”””””””    
+         Сумма прописью                                                                      ЈШифр         Ј09         
+        @QtyWrBsСумма.прописью1.............................................................@Јдокумента    Ј           
+        @QtyWrBsСумма.прописью2.............................................................@“”””””””””””””•”””””””    
+        @QtyWrBsСумма.прописью3.............................................................@Ј             Ј           
+                                                                                             “”””””””””””””•”””””””    
+                                                                                             Ј             Ј           
+        ”””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””‘”””””””””””””‘”””””””    
+         Содержание операции, наименование, номер и дата                                      
+         документа, на основании которого составлен мемориальный ордер                                                                                
+        @Comment1.................................................................................................@
+        @Comment2.................................................................................................@
+        ”””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””           
+
+         Подписи                                                                                                                     
+
+        ”””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””           
+
+         Приложение: @AttachDocCnt@ документов на @AttachPgCnt@ листах.
+         @Field20_1................................................................................................@
+         @Field20_2................................................................................................@
+         @Field20_3................................................................................................@
+$
+&
+//#@PL1@
+#@FilterTxt@
+#@Dop1@
+#@Group0@
+#@ShowErrors@
+#@SQL_Main@
+#@PS@
+$@OrderID......@{TRUE} 
+                                                                                       Љ”””””””””””””””””””Ї
+                                                                                       ЈКод формы документаЈ
+                                                                                       Ј     по ОКУД       Ј
+                                                                                       “”””””””””””””””””””¤
+                                                                                       Ј     0401108       Ј
+        @Author.......................................................................@@LABLE.LINE.........@
+        ______________________________________________________________________________
+        Составитель
+#IF @Trip.............@ > 0 #THEN
+                                                                                       Љ””””””””””Ї 
+#ELSE
+
+#ENDIF
+        @MOCaption......................@ N @Number........@  @Date....@              #IF @Trip.............@ > 0 #THEN  Ј   СПОД   Ј #ENDIF                             
+                                            ________________  ____________            #IF @Trip.............@ > 0 #THEN  ђ””””””””””‰ #ENDIF
+                                                                  Дата
+        @Field5...................................................................................................@                
+
+        ””””””””””””””””””””””””””””””””””””””””””””””’””””””””””””””””””””””’”””””””””””””””””””””””””””””””””””””
+         Наименование счета                           Ј     Дебет счета      Ј            Сумма цифрами            
+        _____________________________________________ Ј ____________________ “””””””””””””””””””’””””””””””””””””””
+#IF @Grouping.....@ = -1 #THEN    //группировка по Д
+        @DebetName...................................@Ј @DebetAccount......@ Ј@TotalSum........@Ј#IF "@D@"<>"810"&"@D@"<>"643" #THEN @QtyD............@ @bDb@#ENDIF                                         
+        ””””””””””””””””””””””””””””””””””””””””””””””•””””””””””””””””””””””¤                  Ј
+         Наименование счета                           Ј     Кредит счета     Ј                  Ј    
+        _____________________________________________ Ј ____________________ “””””””””””””””””””•””””””””””””””””””
+#ENDIF                                                                                          
+        @DebetName...................................@Ј @DebetAccount......@ Ј@QtyBs...........@Ј#IF "@D@"<>"810"&"@D@"<>"643" #THEN @QtyD............@ @bDb@#ENDIF                                         
+#IF @Grouping.....@ = -1 #THEN    //группировка по Д
+#ELSE                                                      
+        ””””””””””””””””””””””””””””””””””””””””””””””•””””””””””””””””””””””¤                  Ј
+         Наименование счета                           Ј     Кредит счета     Ј                  Ј
+        _____________________________________________ Ј ____________________ Ј                  Ј
+        @CreditName..................................@Ј @CreditAccount.....@ Ј@TotalSum........@Ј#IF "@C@"<>"810"&"@C@"<>"643" #THEN @QtyC............@ @bCb@#ENDIF                                           
+#ENDIF        
+        ””””””””””””””””””””””””””””””””””””””””””””””‘””””””””””””””””””””””‘”””””””””””””””’””‘””””””””””’”””””””    
+         Сумма прописью                                                                      ЈШифр         Ј09         
+        @QtyWrBsСумма.прописью1.............................................................@Јдокумента    Ј           
+        @QtyWrBsСумма.прописью2.............................................................@“”””””””””””””•”””””””    
+        @QtyWrBsСумма.прописью3.............................................................@Ј             Ј           
+                                                                                             “”””””””””””””•”””””””    
+                                                                                             Ј             Ј           
+        ”””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””‘”””””””””””””‘”””””””    
+         Содержание операции, наименование, номер и дата                                      
+         документа, на основании которого составлен мемориальный ордер                                                                                
+        @Comment1.................................................................................................@
+        @Comment2.................................................................................................@
+        ”””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””           
+
+         Подписи                                                                                                                     
+
+        ”””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””           
+
+         Приложение: @AttachDocCnt@ документов на @AttachPgCnt@ листах.
+         @Field20_1................................................................................................@
+         @Field20_2................................................................................................@
+         @Field20_3................................................................................................@
+        
+                                                                                       Љ”””””””””””””””””””Ї
+                                                                                       ЈКод формы документаЈ
+                                                                                       Ј     по ОКУД       Ј
+                                                                                       “”””””””””””””””””””¤
+                                                                                       Ј     0401108       Ј
+        @Author.......................................................................@@LABLE.LINE.........@
+        ______________________________________________________________________________
+        Составитель
+#IF @Trip.............@ > 0 #THEN
+                                                                                       Љ””””””””””Ї 
+#ELSE
+
+#ENDIF
+        @MOCaption......................@ N @Number........@  @Date....@              #IF @Trip.............@ > 0 #THEN  Ј   СПОД   Ј #ENDIF                             
+                                            ________________  ____________            #IF @Trip.............@ > 0 #THEN  ђ””””””””””‰ #ENDIF
+                                                                  Дата
+        @Field5...................................................................................................@                
+
+        ””””””””””””””””””””””””””””””””””””””””””””””’””””””””””””””””””””””’”””””””””””””””””””””””””””””””””””””
+         Наименование счета                           Ј     Дебет счета      Ј            Сумма цифрами            
+        _____________________________________________ Ј ____________________ “””””””””””””””””””’””””””””””””””””””
+#IF @Grouping.....@ = -1 #THEN    //группировка по Д
+        @DebetName...................................@Ј @DebetAccount......@ Ј@TotalSum........@Ј#IF "@D@"<>"810"&"@D@"<>"643" #THEN @QtyD............@ @bDb@#ENDIF                                         
+        ””””””””””””””””””””””””””””””””””””””””””””””•””””””””””””””””””””””¤                  Ј
+         Наименование счета                           Ј     Кредит счета     Ј                  Ј    
+        _____________________________________________ Ј ____________________ “””””””””””””””””””•””””””””””””””””””
+#ENDIF                                                                                          
+        @DebetName...................................@Ј @DebetAccount......@ Ј@QtyBs...........@Ј#IF "@D@"<>"810"&"@D@"<>"643" #THEN @QtyD............@ @bDb@#ENDIF                                         
+#IF @Grouping.....@ = -1 #THEN    //группировка по Д
+#ELSE                                                      
+        ””””””””””””””””””””””””””””””””””””””””””””””•””””””””””””””””””””””¤                  Ј
+         Наименование счета                           Ј     Кредит счета     Ј                  Ј
+        _____________________________________________ Ј ____________________ Ј                  Ј
+        @CreditName..................................@Ј @CreditAccount.....@ Ј@TotalSum........@Ј#IF "@C@"<>"810"&"@C@"<>"643" #THEN @QtyC............@ @bCb@#ENDIF                                           
+#ENDIF        
+        ””””””””””””””””””””””””””””””””””””””””””””””‘””””””””””””””””””””””‘”””””””””””””””’””‘””””””””””’”””””””    
+         Сумма прописью                                                                      ЈШифр         Ј09         
+        @QtyWrBsСумма.прописью1.............................................................@Јдокумента    Ј           
+        @QtyWrBsСумма.прописью2.............................................................@“”””””””””””””•”””””””    
+        @QtyWrBsСумма.прописью3.............................................................@Ј             Ј           
+                                                                                             “”””””””””””””•”””””””    
+                                                                                             Ј             Ј           
+        ”””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””‘”””””””””””””‘”””””””    
+         Содержание операции, наименование, номер и дата                                      
+         документа, на основании которого составлен мемориальный ордер                                                                                
+        @Comment1.................................................................................................@
+        @Comment2.................................................................................................@
+        ”””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””           
+
+         Подписи                                                                                                                     
+
+        ”””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””           
+
+         Приложение: @AttachDocCnt@ документов на @AttachPgCnt@ листах.
+         @Field20_1................................................................................................@
+         @Field20_2................................................................................................@
+         @Field20_3................................................................................................@
+
+$T                                                                  
+$
+$
+&
+//#@PL2@
+#@FilterWord@
+#@ShowErrors@
+#@NotShowResultWindow@
+#@FileNameForWord@
+#@RunXmlFormatting@
+#@RunToWord@
+#@SQL_Main@
+#@PS@
+// заголовок файла 
+<?xml version="1.0" encoding="WINDOWS-1251"?>
+<Report>
+<FixedPart> 
+// *************** Постоянная часть ***************
+  <Bank         title="Наименование банка"        >@Bank@</Bank>                                   
+  <BIC          title="БИК"                       >@BIC..........@</BIC>                           
+  <Res          title="К/С"                       >@Res...............@</Res>                      
+  <FullDate     title="Дата"                      >@FullDate.............@</FullDate>              
+  <AccUser      title="Пользователь подтвердивший">@AccUser@</AccUser>                             
+  <DocUser      title="Пользователь создавший"    >@DocUser@</DocUser>                             
+  <Author       title="Составитель"               >@Author@</Author>                               
+  <MOCaption    title="Наименование ордера"       >@MOCaption......................@</MOCaption>   
+  <OrderID      title="OrderID"                   >@Grouping.....@</OrderID>  
+  <SignStr      title="Подписи"                   >@SignStr@</SignStr>
+</FixedPart>
+<VarPart>
+// *************** Переменная часть ***************
+$@OrderID......@ 
+  <Order>
+#IF @Trip.............@ > 0 #THEN 
+    <Mrk     title="Отметка">[СПОД]</Mrk>
+#ELSE
+    <Mrk     title="Отметка">      </Mrk>
+#ENDIF
+    <Number  title="Номер ордера">@Number........@</Number>
+    <Date    title="Дата ордера">@Date....@</Date>
+    <Field5  title="Поле 5">@Field5@</Field5>
+    <QtyWrBs title="Сумма прописью">@QtyWrBs@</QtyWrBs>
+    <Comment title="Содержание операции">@Comment@</Comment>
+
+#IF @Grouping.....@ = -1 #THEN    //группировка по Д
+    <DebetName    title="Наименование счета" >@DebetName@</DebetName>
+    <DebetAccount title="Дебет счета"        >@DebetAccount......@</DebetAccount>
+    <QtyBsD       title="Сумма цифрами(1)">@TotalSum........@</QtyBsD>
+#IF "@D@"<>"810"&"@D@"<>"643" #THEN 
+    <QtyD         title="Сумма цифрами(2)">@QtyDTotal.......@ @bDb@</QtyD>  
+#ELSE
+    <QtyD         title="Сумма цифрами(2)"></QtyD>  
+#ENDIF   //#IF "@D@
+#ENDIF //#IF @OrderID
+
+$T
+#IF @Grouping.....@ = -1 #THEN    //группировка по Д
+    <QtyCRow> 
+      <CreditName    title="Наименование счета">@CreditName@</CreditName>
+      <CreditAccount title="Кредит счета"      >@CreditAccount.....@</CreditAccount>
+      <QtyBsC        title="Сумма цифрами(1)"  >@QtyBs...........@</QtyBsC>
+#IF "@C@"<>"810"&"@C@"<>"643" #THEN 
+      <QtyC          title="Сумма цифрами(2)"  >@QtyC............@ @bCb@</QtyC>  
+#ELSE
+      <QtyC          title="Сумма цифрами(2)"  ></QtyC>  
+#ENDIF   //#IF "@C@
+    </QtyCRow>
+
+#ELSE    //группировка по К
+    <QtyDRow> 
+      <DebetName    title="Наименование счета">@DebetName@</DebetName>
+      <DebetAccount title="Дебет счета"       >@DebetAccount......@</DebetAccount>
+      <QtyBsD       title="Сумма цифрами(1)"  >@QtyBs...........@</QtyBsD>
+#IF "@D@"<>"810"&"@D@"<>"643" #THEN 
+      <QtyD         title="Сумма цифрами(2)"  >@QtyD............@ @bDb@</QtyD>  
+#ELSE
+      <QtyD         title="Сумма цифрами(2)"  ></QtyD>  
+#ENDIF   //#IF "@D@
+    </QtyDRow>
+
+#ENDIF //#IF @Grouping.....@ = -1      
+$
+#IF @Grouping.....@ = -1 #THEN    //группировка по Д
+#ELSE                             //группировка по К                           
+    <CreditName    title="Наименование счета">@CreditName@</CreditName>
+    <CreditAccount title="Кредит счета"      >@CreditAccount.....@</CreditAccount>
+    <QtyBsC        title="Сумма цифрами(1)"  >@TotalSum........@</QtyBsC>
+#IF "@C@"<>"810"&"@C@"<>"643" #THEN 
+    <QtyC          title="Сумма цифрами(2)"  >@QtyCTotal.......@ @bCb@</QtyC>  
+#ELSE
+    <QtyC          title="Сумма цифрами(2)"  ></QtyC>  
+#ENDIF   //#IF "@D@
+#ENDIF //#IF @Grouping.....@ = -1    
+    <AttachDocCnt title="Приложение___документов"   >@AttachDocCnt@</AttachDocCnt>
+    <AttachPgCnt  title="На___листах"               >@AttachPgCnt@</AttachPgCnt>
+    <Field20 title="Field20"                 >@Field20@</Field20>
+  </Order>      
+$
+// конец файла 
+</VarPart>
+</Report>
+
+&&
+&&
+%Format!= Param{Формат вывода, dtBinary, 0, , , , , , в текст; в Word;, 1, 1}
+%Number!=Param{Номер, dtString, 3, , , , , , , 0, 0}
+%Grouping!=Param{Группировка, dtBinary, 0, , , , , , не группировать;по счету Д;по счету К;, 1, 1}
+%Sorting!=Param{Сортировка, dtBinary, 0, , , , , , по номеру счета;по возрастанию суммы;, 1, 1}
+%Correctional!=Param{Исправительный, dtBit, 0, , , , , , , 0, 0}
+%AttachDocCnt!=Param{Приложение___документов, dtInt, 10, , , , , , , 0, 0}
+%AttachPgCnt!=Param{На___листах, dtInt, 10, , , , , , , 0, 0}
+%CommentStr!=Param{Содержание операции, dtText, 255, , , , , , , 0, 0}
+%Field20!=Param{Поле 20, dtText, 255, , , , , , , 0, 0}
+%Dop!=Param{Дополнительный экземпляр, dtBit, 0, , , , , , , 0, 0} 
+
+

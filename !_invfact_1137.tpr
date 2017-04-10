@@ -1,0 +1,2522 @@
+/* begin sign
+  SIGN_MAINPRODUCT         'FA-Payments'
+  SIGN_MPRODUCTVERSION     '8'
+  SIGN_MPRODUCTRELEASE     '2'
+  SIGN_MPRODUCTBUILD       '17022702'
+  SIGN_MPRODUCTPACKAGE     ''
+  SIGN_MPRDPCKGRELEASE     ''
+  SIGN_MPRDPCKGBUILD       ''
+  SIGN_MPRODUCTADDITION    ''
+  SIGN_MPRDADDRELEASE      ''
+  SIGN_MPRDADDBUILD        ''
+  SIGN_MPRODUCTHOTFIX      ''
+  SIGN_MPRDHFRELEASE       ''
+  SIGN_MPRDHFBUILD         ''
+  SIGN_MPRODUCTPPR         ''
+  SIGN_MPRDPPRRELEASE      ''
+  SIGN_MPRDPPRBUILD        ''
+  SIGN_PRODUCT 'Invoice'
+  SIGN_PRODUCTVERSION ''
+  SIGN_PRODUCTRELEASE ''
+  SIGN_PRODUCTBUILD '226'
+  SIGN_CLIENTPRODUCTBUILD '4'
+  SIGN_PACKAGE 'FA-Payments-8-02-4-17022702'
+  SIGN_PACKAGERELEASE ''
+  SIGN_PACKAGEBUILD ''
+  SIGN_CLIENTPACKAGEBUILD ''
+  SIGN_ADDITION ''
+  SIGN_ADDITIONRELEASE ''
+  SIGN_ADDITIONBUILD ''
+  SIGN_CLIENTADDITIONBUILD ''
+  SIGN_HOTFIX ''
+  SIGN_FILENAME 'Reporting/Business/invfact_1137.tpr'
+  SIGN_FILEDATE 'invfact_1137.tpr'
+  SIGN_FILEVERSION '27.02.2017'
+  SIGN_PPR ''
+  SIGN_PPRRELEASE ''
+  SIGN_PPRBUILD ''
+end sign */
+@DpTable@=SQL{
+
+if object_id('tempdb..#ParentDocs'     ) is not null drop table #ParentDocs
+if object_id('tempdb..#DopDocs'        ) is not null drop table #DopDocs          
+if object_id('tempdb..#Docs'           ) is not null drop table #Docs     
+if object_id('tempdb..#DocsDopParams'  ) is not null drop table #DocsDopParams   
+if object_id('tempdb..#ware'           ) is not null drop table #ware            
+if object_id('tempdb..#WareParent'     ) is not null drop table #WareParent            
+if object_id('tempdb..#Params'         ) is not null drop table #Params 
+if object_id('tempdb..#Result_Invoices') is not null drop table #Result_Invoices    
+if object_id('tempdb..#Result_Products') is not null drop table #Result_Products 
+                
+select '@DpTable@'
+}
+
+@Table@ = SQL{
+    
+create table #ParentDocs          
+       (                                    
+       DocID         numeric(15,0)
+      ,ParDocsNum    varchar(255)
+      ,NumExt        varchar(1)
+      ,Source        DSTINYINT    --0 - по старому алгоритму (из первичного документа и др.), 1 - через связанный авансового СФ  
+       )
+create index XPKParentDocs on #ParentDocs(DocID) 
+
+create table #WareParent
+       (                                    
+       SecInvoiceID  DSIDENTIFIER,
+       GroupID       DSIDENTIFIER
+       )
+create index XPKWareParent on #WareParent(SecInvoiceID) 
+create index XAK1WareParent on #WareParent(GroupID) 
+       
+create table #Docs
+       ( 
+       DocID          numeric(15,0)           
+      ,Direction      int           null
+      ,ParDocsNum     varchar(255)  null
+      ,CorrectDocID   DSIDENTIFIER  null
+      ,BasicDocID     DSIDENTIFIER  null
+      ,GrUsl          DSTINYINT     null
+       )
+
+create table #DopDocs  
+       ( 
+       DocID      numeric(15,0)
+       )
+              
+create table #DocsDopParams
+       ( 
+       DocID                 DSIDENTIFIER
+      ,Type                  tinyint 
+      ,DocNumber             varchar(25)     null        
+      ,DocDate               smalldatetime   null
+      ,ChangeNum             int             null 
+      ,ChangeDate            smalldatetime   null   
+      ,TaxAgent              tinyint         null   
+      ,CodeVO                varchar(20)     null   
+      ,UpFrontMoney          tinyint         null   
+      ,Correct               tinyint         null   
+      ,v_Delete              tinyint         null   
+      ,DelCurPeriod          tinyint         null   
+      ,InfactNum             varchar(20)     null   
+      ,InfactDate            smalldatetime   null   
+      ,InfactChangeNum       int             null   
+      ,InfactChangeDate      smalldatetime   null   
+      ,BasisDealTranID       DSIDENTIFIER    null  
+      ,ParDocsNum            DSCOMMENT       null  
+      ,FileName              DSCOMMENT       null
+       )                                     
+       
+-- товарные позиции
+create table #ware
+       (
+       InvoiceWareID  numeric(15,0)       
+      ,DealTransactID numeric(15,0)       
+      ,InvoiceDate    smalldatetime       
+      ,SecurityID     numeric(15,0)       
+      ,SecurityBrief  varchar(25)            null  
+      ,SecurityName   varchar(255)           null  
+      ,Quantity       float                      
+      ,Price          money              
+      ,VATRateID      numeric(15,0)
+      ,VATRate        float        
+      ,Payment        money                       
+      ,VATPay         money        
+      ,Fund           varchar(25)  
+      ,FNumber        varchar(10)  
+      ,FundID         numeric(15,0)                
+      ,DateEnd        smalldatetime               
+      ,InitiatorID    numeric(15,0)           
+      ,ParentID       numeric(15,0)              
+      ,TransactType   int                    
+      ,Comment        varchar(255)                
+      ,CountryID      numeric(15,0)             
+      ,GTD            varchar(255) 
+      ,RPrice           DSMONEY      
+      ,PriceBuying      DSMONEY               
+      ,CorrectAmount    int     null 
+      ,CorrectTarif     DSMONEY null 
+      ,CorrectTax       int     null 
+      ,CorrectSumOutNDS DSMONEY null 
+      ,CorrectSum       DSMONEY null 
+      ,CorrectNDS       DSMONEY null 
+      )       
+create index XIE1ware on #ware(DealTransactID)
+
+create table #Params
+       (
+       R_T_PPR                     varchar(20)   null   
+      ,R_T_POK                     varchar(20)   null   
+      ,R_T_KORSPPR                 varchar(20)   null   
+      ,R_T_KORSPOK                 varchar(20)   null   
+      ,FormatVersion               varchar(20)   null   
+      ,RegionCodeType              varchar(20)   null   
+      ,CHECK_MANDATORY_MEMBER      tinyint       null   
+      ,INVOICE_ID_Recipient        varchar(43)   null  
+      ,INVOICE_ID_Sender           varchar(43)   null  
+      ,INVOICE_ProgramVersion      varchar(25)   null  
+      ,INVOICE_OperatorED          DSIDENTIFIER  null
+      ,INVOICE_BasisForCompilation varchar(120)  null      
+      ,XMLReportID                 DSIDENTIFIER  null
+      ,ClientHistory  DSTINYINT
+      ,LineNumberFlag DSTINYINT
+       )
+       
+create index XPKDocsDopParams on #DocsDopParams  (  DocID )
+       
+create table #Result_Invoices --1964 bytes (предел 1964)
+       (
+       Number             varchar(25)    NULL
+      ,[Date]             datetime       NULL
+      ,FakturaID          numeric(15,0)  NULL
+      ,ParDocsNum         varchar(255)   NULL
+      ,Seller             varchar(160)   NULL
+      ,SelAddress         varchar(160)   NULL
+      ,SelAddressID       DSIDENTIFIER   NULL
+      ,SelINN             varchar(15)    NULL
+      ,SellKPP            varchar(30)    NULL
+      ,Buyer              varchar(160)   NULL
+      ,BuyAddress         varchar(160)   NULL
+      ,BuyAddressID       DSIDENTIFIER   NULL
+      ,BuyINN             varchar(15)    NULL
+      ,BuyKPP             varchar(30)    NULL
+      ,Gruzootpravitel    varchar(160)   NULL
+      ,GruzootpravitelID  DSIDENTIFIER   NULL
+      ,GruzOtprAddress    varchar(160)   NULL
+      ,GruzOtprAddressID  DSIDENTIFIER   NULL
+      ,Gruzopoluchatel    varchar(160)   NULL
+      ,GruzopoluchatelID  DSIDENTIFIER   NULL
+      ,GruzPolAddress     varchar(160)   NULL
+      ,GruzPolAddressID   DSIDENTIFIER   NULL
+      ,Fund               varchar(104)   NULL
+      ,Correct            tinyint        NULL
+      ,ChangeNum          int            NULL
+      ,ChangeDate         smalldatetime  NULL
+      ,TaxAgent           tinyint        NULL
+      ,TaxAgentDDP        tinyint        NULL  -- вне зависимости от направления
+      ,CodeVO             varchar(20)    NULL
+      ,UpFrontMoney       tinyint        NULL
+      ,InfactNum          varchar(20)    NULL
+      ,InfactDate         smalldatetime  NULL
+      ,InfactChangeNum    int            NULL
+      ,InfactChangeDate   smalldatetime  NULL
+      ,OnDate             DSOPERDAY      NULL
+      ,Filename           DSCOMMENT      null
+       )
+
+create table #Result_Products --1788 bytes (предел 1964)
+       (
+       FakturaID         DSIDENTIFIER  NULL
+      ,TovPositID        numeric(15,0) NULL
+      ,TovarName         varchar(255)  NULL
+      ,EdIzm             varchar(20)   NULL
+      ,EdIzm_Name        varchar(25)   NULL
+      ,Kolvo             int           NULL
+      ,PriceWoNDS        money         NULL
+      ,SummaWoNDS        DSBIGMONEY    NULL
+      ,PriceBuying       money         NULL
+      ,FlPriceBuying     int           NULL
+      ,SStavkaNDS        varchar(42)   NULL
+      ,NDS               money         NULL
+      ,SummaWNDS         money         NULL
+      ,Akc               varchar(10)   NULL
+      ,Director          DSFIELDNAME   NULL
+      ,DirectorPost      DSCOMMENT     NULL
+      ,BookKeeper        DSFIELDNAME   NULL
+      ,BookKeeperPost    DSCOMMENT     NULL
+      ,ParentDocs        varchar(255)  NULL
+      ,GTD               varchar(255)  NULL
+      ,STRANA            varchar(25)   NULL
+      ,STRANACode        varchar(3)    NULL
+      ,FName             varchar(27)   NULL
+      ,FNum              varchar(10)   NULL
+      ,Correct           tinyint       NULL
+      ,CorrectAmount     int           NULL
+      ,CorrectTarif      money         NULL
+      ,SCorrectTax       varchar(42)   NULL
+      ,CorrectSumOutNDS  money         NULL
+      ,CorrectSum        money         NULL
+      ,CorrectNDS        money         NULL
+      ,BCorrectSumOutNDS DSBIGMONEY    NULL
+      ,BCorrectSum       money         NULL
+      ,BCorrectNDS       money         NULL
+      ,GCorrectSumOutNDS DSBIGMONEY    NULL
+      ,GCorrectSum       money         NULL
+      ,GCorrectNDS       money         NULL
+      ,UpFrontMoney      tinyint       NULL
+       )
+
+select @@spid
+                   
+}
+
+@DocsDopParams@=SQL{
+
+declare @schetf  DSIDENTIFIER
+       ,@Format  tinyint
+       ,@RubisObjClassifierID DSIDENTIFIER
+       
+select @RubisObjClassifierID  = ObjClassifierID 
+  from tObjClassifier #M_NOLOCK_INDEX(XAK1tDepClassifier)
+ where ObjType  = 0 
+   and ParentID = 0 
+   and Brief = 'Код Рубис'       
+       
+       
+select @Format = %Format!
+      ,@schetf = %InstrumentID!  
+
+if isnull(@schetf,0) <>0
+begin
+  delete tDocMark
+    from tDocMark dm #M_ROWLOCK_INDEX(XPKtDocMark)
+   where dm.spid    =  @@spid
+     and dm.type    = 9
+  
+  insert tDocMark #M_WITH_ROWLOCK
+  select @@spid,9,@schetf
+end
+
+if not exists(select 1
+                from tDocMark dm #M_NOLOCK_INDEX(XPKtDocMark)
+               where dm.spid    =  @@spid
+                 and dm.type    = 9)
+begin                 
+  select @schetf = i.InstrumentID
+    from tConfigParam  cp #M_NOLOCK_INDEX(XAK0tConfigParam)            
+        ,tInstrument   i  #M_NOLOCK_INDEX(XPKtInstrument)
+   where cp.SysName     = 'COSTING_FO_INVOICE' 
+     and i.InstrumentID = cp.ID
+  #M_ISOLAT
+  #M_FORCEORDER 
+  insert tDocMark #M_WITH_ROWLOCK
+  select @@spid,9,@schetf
+end 
+
+delete tDocMark
+  from tDocMark dm #M_ROWLOCK_INDEX(XPKtDocMark)
+ where dm.spid    =  @@spid
+   and dm.type    = 3
+
+insert tDocMark #M_WITH_ROWLOCK
+select @@spid,3,dm.ID   
+  from tDocMark dm #M_NOLOCK_INDEX(XPKtDocMark)
+ where dm.spid    =  @@spid
+   and dm.type    = 9
+
+insert #Docs  
+select dm.ID 
+      ,null
+      ,null
+      ,null
+      ,null
+      ,null
+  from tDocMark dm #M_NOLOCK_INDEX(XPKtDocMark)
+ where dm.SPID = @@spid
+   and dm.Type = 71
+
+--находим корректировочный и базовый сф   
+declare @DocID         DSIDENTIFIER         
+       ,@Type          tinyint              
+       ,@CorrectDocID  DSIDENTIFIER 
+       ,@BasicDocID    DSIDENTIFIER       
+       ,@ChildDocID    DSIDENTIFIER         
+       ,@ParentDocID    DSIDENTIFIER       
+
+select @DocID = min(DocID)
+  from #Docs
+#M_ISOLAT
+
+while @DocID is not null              
+begin
+  
+  select @ParentDocID = @DocID
+  
+  select @Type = dt.Type 
+    from tDealTransact  dt    #M_NOLOCK_INDEX(XPKtDealTransact)
+   where dt.DealTransactID    = @ParentDocID
+  #M_ISOLAT   
+  
+  while isnull(@Type,0) not in (0,4)
+  begin
+  
+    select @ChildDocID = null
+    
+    select @ChildDocID = case
+                           when r.RelType = 150
+                            and isnull(r.Fixed,0) <> 0
+                           then r.Fixed
+                           else r.ChildID
+                         end  
+      from tINVDealRelation r #M_NOLOCK_INDEX(XPKtINVDealRelation)
+     where r.RelType  in (148,149,150) --DR_BASIS_CR_INV
+       and r.ParentID = @ParentDocID  
+    #M_ISOLAT          
+    
+    select @Type = null
+    
+    select @Type = dt.Type 
+      from tDealTransact  dt    #M_NOLOCK_INDEX(XPKtDealTransact)
+     where dt.DealTransactID    = @ChildDocID
+    #M_ISOLAT   
+
+    if @Type = 1
+    begin
+    
+      update #Docs
+         set CorrectDocID = @ChildDocID 
+       where #Docs.DocID = @DocID 
+    
+    end
+   
+    select @ParentDocID = null
+    select @ParentDocID =  @ChildDocID
+    
+  end
+
+  if @ChildDocID <> @DocID 
+  begin
+  
+    update #Docs
+       set BasicDocID = @ChildDocID 
+     where #Docs.DocID = @DocID 
+     
+  end
+  select @DocID = min(DocID)
+    from #Docs
+   where @DocID < DocID
+  #M_ISOLAT
+end         
+
+declare @UpFrontMoney DSIDENTIFIER
+
+select @UpFrontMoney= isnull(CntParamsID,0) 
+  from tCntParams #M_NOLOCK_INDEX(XAK1tCntParams) 
+ where SysName = 'UpFrontMoney'
+#M_ISOLAT
+
+insert #DocsDopParams
+       ( 
+       DocID              
+      ,Type 
+      ,DocNumber         
+      ,DocDate           
+      ,ChangeNum             
+      ,ChangeDate            
+      ,TaxAgent              
+      ,CodeVO
+      ,UpFrontMoney            
+      ,Correct               
+      ,v_Delete 
+      ,DelCurPeriod
+      ,InfactNum             
+      ,InfactDate            
+      ,InfactChangeNum       
+      ,InfactChangeDate      
+      ,BasisDealTranID
+      ,FileName
+      ,ParDocsNum
+       )
+select DocID             = dm.DocID   
+      ,Type              = dt.Type
+      ,DocNumber         = case
+                             when isnull(dt.Type, 0) = 2
+                             then dt_Basic.Series
+                             when isnull(dt.Type, 0) = 3
+                             then dt_Corr.Series
+                             else dt.Series
+                           end  
+      ,DocDate           = case
+                             when isnull(dt.Type, 0) = 2
+                             then dt_Basic.TermDate
+                             when isnull(dt.Type, 0) = 3
+                             then dt_Corr.TermDate
+                             else dt.TermDate
+                           end 
+      ,ChangeNum         = case
+                             when isnull(dt.Type, 0) in (2,3)
+                             then isnull(dt.Pass, 0)
+                             else 0
+                           end  
+      ,ChangeDate        = case
+                             when isnull(dt.Type, 0) in (2,3)
+                             then isnull(dt.TermDate, '19000101')
+                             else '19000101'
+                           end
+      ,TaxAgent          = isnull(isnull((select max(1)
+                                     from tInstLink    il1 #M_NOLOCK_INDEX(XAK1tInstLink)
+                                    inner join tInstitution i #M_NOLOCK_INDEX(XPKtInstitution)   
+                                            on i.InstitutionID = dt.InstSecondID
+                                    inner join tInstLinkEx2 il2 #M_NOLOCK_INDEX(XPKtInstLinkEx2)
+                                            on il2.InstLinkID = il1.InstLinkID
+                                           and ((il2.DateBegin <= dt.termDate) and
+                                                ((dt.termDate<= il2.DateEnd) or (il2.DateEnd = '19000101')))
+                                    where il1.LinkTypeID = 13
+                                      and il1.ParentID   = dt.InstSecondID
+                                      and il1.ChildID    = dt.InstitutionID
+                                   ), (select max(1)
+                                     from tInstLink    il1 #M_NOLOCK_INDEX(XAK1tInstLink)
+                                    inner join tInstitution i #M_NOLOCK_INDEX(XPKtInstitution)   
+                                            on i.InstitutionID = dt.InstSecondID
+                                    inner join tInstLinkEx2 il2 #M_NOLOCK_INDEX(XPKtInstLinkEx2)
+                                            on il2.InstLinkID = il1.InstLinkID
+                                           and ((il2.DateBegin <= dt.termDate) and
+                                                ((dt.termDate<= il2.DateEnd) or (il2.DateEnd = '19000101')))
+                                    where il1.LinkTypeID = 13
+                                      and il1.ParentID   = dt.InstitutionID
+                                      and il1.ChildID    = dt.InstSecondID
+                                   )) ,0) 
+      ,CodeVO            = isnull(dt.DocName,'')
+      ,UpFrontMoney        = coalesce(
+                                     case
+                                       when substring(dt.NumberExt,9,1) = '1'
+                                       then 1
+                                       else null
+                                     end         
+                                    ,convert(tinyint,UpFrontMoney.value)
+                                    ,0
+                                     )                
+      ,Correct           = case
+                             when isnull(dt.Type, 0) = 1 then 1
+                             when isnull(dt.Type, 0) = 3 then 1
+                             else 0
+                           end 
+      ,v_Delete          = case
+                             when isnull(rl_del.ChildID, 0) <> 0
+                             then 1
+                             else 0
+                           end
+      ,DelCurPeriod      = 0
+                           
+      ,InfactNum         = case
+                             when isnull(dt.Type,0) in (1,3)
+                             then isnull(dt_Basic.Series,'')
+                             else ''
+                           end                             
+      ,InfactDate        = case
+                             when isnull(dt.Type,0) in (1,3)
+                             then isnull(dt_Basic.TermDate ,'19000101')
+                             else '19000101'
+                           end                                     
+      ,InfactChangeNum   = case
+                             when isnull(dt.Type, 0) = 1
+                             then isnull(dt1.Pass,0)
+                             when isnull(dt.Type, 0) = 3
+                             then isnull(dt_inv.Pass,0)
+                             else 0
+                           end                  
+      ,InfactChangeDate  = case
+                             when isnull(dt.Type, 0) = 1
+                             then isnull(dt1.TermDate ,'19000101')
+                             when isnull(dt.Type, 0) = 3
+                             then isnull(dt_inv.TermDate ,'19000101')
+                             else '19000101'
+                           end           
+      ,BasisDealTranID   = case
+                             when isnull(dt.Type, 0) = 3
+                             then case
+                                    when isnull(rl3.Fixed, 0) = 0
+                                    then rl3.ChildID
+                                    else rl3.Fixed
+                                  end --isnull(rl3.ChildID,0)
+                             else isnull(isnull(rl1.ChildID,rl2.ChildID),0)
+                           end                  
+    ,FileName          = convert(varchar, dt.Date, 112) + 
+                           char(92) + 
+                           (select min(fcl.Name + ' ' + fcl.Comment)  
+                              from tDealTransact  fdt #M_NOLOCK_INDEX(XIE2tDealTransact),
+                                   tResource      frd #M_NOLOCK_INDEX(XPKtResource),
+                                   tObjClassifier fcl #M_NOLOCK_INDEX(XAK1tDepClassifier)
+                             where fdt.ParentID = dt.DealtransactID
+                               and frd.ResourceID = fdt.ResourceID
+                               and fcl.ObjType  = 0 
+                               and fcl.ParentID = @RubisObjClassifierID
+                               and fcl.Param = substring(frd.Brief, 12, 2)) + 
+                           char(92) + 
+                           convert(varchar, dt.Date, 112) + '_' + dt.DocNumber + '_' + str_replace(i2.Name, char(34), null) + '_' + i2.INN + '.txt'
+      ,ParDocsNum        = case 
+                             when isnull(dt.Comment, '') <> '' then '№ ' + dt.Comment
+                             else '№    '
+                           end  
+
+
+  from #Docs              dm
+ inner join tDealTransact  dt    #M_NOLOCK_INDEX(XPKtDealTransact)
+         on dt.DealTransactID    = dm.DocID
+        and dt.TransactType      = 18 
+ inner join tDocMark dminstr #M_NOLOCK_INDEX(XPKtDocMark)
+         on dminstr.SPID    = @@spid
+        and dminstr.Type    = 3
+        and dminstr.ID      = dt.InstrumentID 
+  left join tEntAttrValue  UpFrontMoney   #M_NOLOCK_INDEX(XIE1tEntAttrValue)  
+         on UpFrontMoney.AttributeID      = @UpFrontMoney
+        and UpFrontMoney.InterfaceType    = 0 
+        and UpFrontMoney.ObjectID         = dt.DealTransactID
+  left join tINVDealRelation rl1 #M_NOLOCK_INDEX(XPKtINVDealRelation)
+         on rl1.RelType  = 148 --DR_BASIS_UP_INV
+        and rl1.ParentID = dt.DealTransactID        
+--        and rl1.Qty      = 0
+  left join tDealTransact dt1 #M_NOLOCK_INDEX(XPKtDealTransact)
+         on dt1.DealTransactID = rl1.ChildID        
+  left join tINVDealRelation rl2 #M_NOLOCK_INDEX(XPKtINVDealRelation)
+         on rl2.RelType  = 149 --DR_BASIS_CR_INV
+        and rl2.ParentID = dt.DealTransactID     
+--        and rl2.Qty      = 0        
+  left join tDealTransact dt2 #M_NOLOCK_INDEX(XPKtDealTransact)
+         on dt2.DealTransactID = rl2.ChildID        
+  left join tINVDealRelation rl3 #M_NOLOCK_INDEX(XPKtINVDealRelation)
+         on rl3.RelType  = 150 --DR_BASIS_UPCR_INV
+        and rl3.ParentID = dt.DealTransactID
+        and rl3.ChildID  <> rl3.Fixed      
+--        and rl3.Qty      = 0        
+  left join tDealTransact dt3 #M_NOLOCK_INDEX(XPKtDealTransact)
+         on dt3.DealTransactID = rl3.ChildID        
+  left join tINVDealRelation rl4 #M_NOLOCK_INDEX(XPKtINVDealRelation)
+         on rl4.RelType  in (148, 149)
+        and rl4.ParentID = rl3.ChildID
+--        and rl4.Qty      = 0                
+  left join tDealTransact dt4 #M_NOLOCK_INDEX(XPKtDealTransact)
+         on dt4.DealTransactID = rl4.ChildID        
+  left join tDealTransact dt_corr #M_NOLOCK_INDEX(XPKtDealTransact)
+         on dt_corr.DealTransactID = dm.CorrectDocID        
+  left join tDealTransact dt_Basic #M_NOLOCK_INDEX(XPKtDealTransact)
+         on dt_Basic.DealTransactID = dm.BasicDocID        
+
+  left join tINVDealRelation rl_inv #M_NOLOCK_INDEX(XPKtINVDealRelation)
+         on rl_inv.RelType  = 148 --DR_BASIS_UP_INV
+        and rl_inv.ParentID = dm.CorrectDocID        
+--        and rl_inv.Qty      = 0                        
+  left join tDealTransact dt_inv #M_NOLOCK_INDEX(XPKtDealTransact)
+         on dt_inv.DealTransactID = rl_inv.ChildID        
+  left join tINVDealRelation rl_del #M_NOLOCK_INDEX(XPKtINVDealRelation)
+         on rl_del.RelType  = 152 --DR_BASIS_UP_INV
+        and rl_del.ParentID = dt.DealTransactID 
+    left join tinstitution i2   #M_NOLOCK_INDEX(XPKtinstitution) 
+         on i2.institutionid = case
+                                 when dt.direction = 0
+                                 then dt.institutionid
+                                 else dt.instSecondId
+                               end         
+#M_FORCEORDER         
+update #DocsDopParams
+   set ParDocsNum = ParDocsNum + ' от ' + isnull((select case 
+                                                           when v1.Value = '01/01/1900'
+                                                           then ' '
+                                                           else v1.Value
+                                                         end  
+                                                    from tCntParams     p1 #M_NOLOCK_INDEX(XAK1tCntParams),
+                                                         tEntAttrValue  v1 #M_NOLOCK_INDEX(XIE1tEntAttrValue)
+                                                   where p1.SysName = 'Data_PlatDoc'
+                                                     and v1.AttributeID = p1.CntParamsID
+                                                     and v1.InterfaceType = 0
+                                                     and v1.ObjectID = #DocsDopParams.DocID),
+                                                 '-')
+
+
+select * from #DocsDopParams 
+#M_ISOLAT    
+}
+
+@GetXMLReportID@=SQL{
+
+declare @XMLReportID    DSIDENTIFIER
+       ,@XMLReportBrief varchar(100)
+       ,@Msg            varchar(255)
+       ,@Recommendation varchar(255)
+       ,@FlDiag         DSIDENTIFIER
+
+select @FlDiag = s.ID
+  from tConfigParam s   #M_NOLOCK_INDEX(XAK0tConfigParam)
+ where s.SysName = 'IS_DIAG_ON'
+#M_ISOLAT 
+            
+if not exists(select 1    --не выделены СФ
+                from tDocMark dm #M_NOLOCK_INDEX(XPKtDocMark)
+               where dm.SPID = @@spid
+                 and dm.Type = 71)
+begin
+  select @Recommendation = 'Необходимо выделить хотя бы один счет-фактуру для запуска данного отчета.'
+  select @Msg            = 'Не выделен счет-фактура(ы)! '
+  
+  if @FlDiag = 1
+  begin
+    select @Msg = @Msg  --если не добавить холостую строку, то возникает ошибка компиляции, когда макрос пустой
+    #M_DIAG_ERRORHANDLE('', '', '', '', '', @Recommendation)  //Записать сообщение об ошибке 
+  end  
+  else
+    select @Msg = @Msg + @Recommendation
+    
+  #IFDEF SYB_STYLE
+    raiserror 88888 @Msg       
+  #ELSE
+    raiserror (@Msg, 16, 1)
+  #ENDIF  
+end                                 
+          
+if %Format! = 1 --XML
+begin
+
+  select @XMLReportBrief = 'invfact_1137XML501'
+  
+  select @XMLReportID = s.SampleID  
+    from tSample s  #M_NOLOCK_INDEX(XAK0tSample)
+   where s.Brief = @XMLReportBrief
+  #M_ISOLAT
+
+  if isnull(@XMLReportID, 0) = 0
+  begin
+    select @Recommendation = 'Необходимо настроить отчет с сокращением "' + @XMLReportBrief + '" для выгрузки в XML.'
+    select @Msg            = 'Не удалось найти вспомогательный отчет "'  + @XMLReportBrief + '"! '
+    
+    if @FlDiag = 1
+    begin
+      select @Msg = @Msg  --если не добавить холостую строку, то возникает ошибка компиляции, когда макрос пустой
+      #M_DIAG_ERRORHANDLE('', '', '', '', '', @Recommendation)  //Записать сообщение об ошибке 
+    end  
+    else
+      select @Msg = @Msg + @Recommendation
+      
+    #IFDEF SYB_STYLE
+      raiserror 88888 @Msg       
+    #ELSE
+      raiserror (@Msg, 16, 1)
+    #ENDIF
+  end
+  
+  --Если при запуске отчета задан "Режим построения" - "выгрузка в xml",  отчет формируется во входящему счету-фактуре , 
+  --не имеющему признак "Налоговый агент", то отчет не формируем с сообщением.
+  if exists(select 1
+              from #DocsDopParams ddp  #M_NOLOCK_INDEX(XPKDocsDopParams) 
+             inner join tDealTransact  dt    #M_NOLOCK_INDEX(XPKtDealTransact)
+                     on dt.DealTransactID    = ddp.DocID
+                    and dt.Direction = 0
+             where ddp.TaxAgent = 0
+             )
+  begin
+    select @Recommendation = 'Для выгрузки в xml выделите только исходящие СФ и входящие с признаком "Налоговый агент".'
+    select @Msg            = 'Нельзя формировать отчет в режиме "выгрузка в xml" по входящему счету-фактуре (СФ), не имеющему признак "Налоговый агент"! '
+
+    if @FlDiag = 1
+    begin
+      #M_DIAG_ERRORHANDLE('', '', '', '', '', @Recommendation)  //Записать сообщение об ошибке 
+               
+      delete pXMLPayee
+        from pXMLPayee #M_ROWLOCK_INDEX(XPKpXMLPayee)
+       where SPID    =  @@spid
+                         
+      insert pXMLPayee #M_WITH_ROWLOCK
+             (
+             SPID                
+            ,DealTransactID 
+            ,xmlINN         
+            ,xmlAcc         
+            ,xmlName        
+            ,xmlKPP         
+             )
+      select SPID           = @@spid      
+            ,DealTransactID = dt.DealTransactID 
+            ,xmlINN         = ''
+            ,xmlAcc         = convert(varchar(10), case 
+                                                     when ddp.Type in (0,1)
+                                                     then dt.TermDate
+                                                     else ddp.DocDate
+                                                   end ,104)   
+            ,xmlName        = case 
+                                when ddp.Type in (0,1)
+                                then ltrim(rtrim(dt.Series))
+                                else ddp.DocNumber
+                              end
+            ,xmlKPP         = ''            
+       from #DocsDopParams ddp  #M_NOLOCK_INDEX(XPKDocsDopParams) 
+      inner join tDealTransact  dt    #M_NOLOCK_INDEX(XPKtDealTransact)
+              on dt.DealTransactID    = ddp.DocID
+             and dt.Direction = 0
+      where ddp.TaxAgent = 0
+      #M_FORCEORDER
+                           
+      #M_DIAG_CLEAR
+      #M_DIAG_ADD_DATASET('pXMLPayee', 'Выделенные счета-фактуры, по которым нельзя формировать XML')
+      #M_DIAG_ADD_DATASET_FIELDTITLE('pXMLPayee', 'xmlAcc',  'Дата СФ')
+      #M_DIAG_ADD_DATASET_FIELDTITLE('pXMLPayee', 'xmlName', 'Номер СФ')      
+                      
+    end  
+    else
+      select @Msg = @Msg + @Recommendation
+      
+    #IFDEF SYB_STYLE
+      raiserror 88888 @Msg       
+    #ELSE
+      raiserror (@Msg, 16, 1)
+    #ENDIF
+  end
+  
+end
+
+insert #Params (XMLReportID)
+select @XMLReportID  
+
+select XMLReportID = @XMLReportID
+  
+}  
+
+@Main@ = SQL{                 
+
+declare @AttributeID1         DSIDENTIFIER   
+       ,@AttributeID2         DSIDENTIFIER   
+       ,@AttributeID3         DSIDENTIFIER   
+       ,@AttributeID4         DSIDENTIFIER   
+       ,@AttributeID5         DSIDENTIFIER   
+       ,@Director             varchar(40)    
+       ,@BookKeeper           varchar(40)    
+       ,@schet                numeric(15,0)  
+       ,@schet_out            numeric(15,0)  
+       ,@bill                 DSIDENTIFIER
+       ,@act                  DSIDENTIFIER
+       ,@FakID                DSIDENTIFIER
+       ,@DocNums              varchar(255)   
+       ,@AddressTypeID_U      DSIDENTIFIER
+       ,@AddressTypeID_F      DSIDENTIFIER
+       ,@AddressTypeID_P      DSIDENTIFIER
+       ,@InstrumentID         DSIDENTIFIER
+       ,@AlterNameTypeID      DSIDENTIFIER
+       ,@InvoiceWareID        DSIDENTIFIER
+       ,@FaktID               DSIDENTIFIER
+       ,@FaktID1              DSIDENTIFIER
+       ,@v_delete             DSTINYINT        
+       ,@BasisDealTranID      DSIDENTIFIER   
+       ,@DocType              DSTINYINT        
+       ,@GrUslID              DSIDENTIFIER
+       ,@LinkedInvoiceID      DSIDENTIFIER
+       ,@XMLReportID          DSIDENTIFIER 
+#M_FORCEPLAN        
+
+-------------------------------- ВНУТРЕННИЕ НАСТРОЙКИ --------------------------------
+
+--Внутренний параметр "Считать головную организацию участником с нашей стороны"
+--в случае, если значение флага 0 или не задано, то остается текущая реализация
+--в случае, если значение флага 1, то выводить в полях отчета 2,2а,2б
+--(данные о Продавце) информацию о головной организации, а не о филиале.
+declare @MainSeller int, @MainID dsidentifier
+select @MainSeller = 0 --текущая реализация, выводим данные о продавце, в т.ч. и филиале
+--select @MainSeller = 1 --выводить информацию о ГО
+
+declare @ClientHistory DSTINYINT -- выводить наименование, ИНН, адрес клиента из истории на дату счета-фактуры. Возможные значения: 
+select @ClientHistory = 0 -- выводить текущие значения (по умолчанию)
+--select @ClientHistory = 1 -- выводить данные, актуальные на дату счета-фактуры
+
+declare @PaymentDocument DSTINYINT -- режим вывода номера и даты платежно-расчетного документа в поле "К платежно-расчетному документу".
+select @PaymentDocument = 0 --При наличии данных о документе заполнять поле всегда (значение по умолчанию)
+--select @PaymentDocument = 1 --Заполнять поле только если СФ имеет признак "Предоплата" или признак "Налоговый агент", иначе прочерк
+
+------ для XML ------
+declare @R_T_PPR                varchar(20)     
+       ,@R_T_POK                varchar(20)     
+       ,@R_T_KORSPPR            varchar(20)     
+       ,@R_T_KORSPOK            varchar(20)     
+       ,@FormatVersion          varchar(20)    
+       ,@RegionCodeType         varchar(20)    
+       ,@CHECK_MANDATORY_MEMBER tinyint
+       
+select @R_T_PPR                = 'ON_SCHFDOPPPR'    --Значение по умолчанию ON_SCHFDOPPPR, используется для формирования имени отчета
+      ,@R_T_POK                = 'ON_SCHFDOPOK'     --Значение по умолчанию ON_SCHFDOPOK, используется для формирования имени отчета
+      ,@R_T_KORSPPR            = 'ON_KORSCHFDOPPR'  --Значение по умолчанию ON_KORSCHFDOPPR, используется для формирования имени отчета
+      ,@R_T_KORSPOK            = 'ON_KORSCHFDOPPOK' --Значение по умолчанию ON_KORSCHFDOPPOK, используется для формирования имени отчета
+      ,@FormatVersion          = '5.01'             --Версия формата. По умолчанию 5.01
+      ,@RegionCodeType         = 'СимвКод'          --Сокращение тип кода региона для вывода в тег КодРегион
+      ,@CHECK_MANDATORY_MEMBER = 0                  --валидация по XSD-схеме 1 - включена, 0 - выключена
+--------------------------------------------------------------------------------------
+declare @LineNumberFlag DSTINYINT -- выводить в отчет номера строк
+select @LineNumberFlag = 0 --         0 - не выводить, значение по умолчанию; 1 - выводить.
+--------------------------------------------------------------------------------------
+--системные настрйоки для режима xml
+declare @INVOICE_ID_Recipient        varchar(43)   --Идентификатор получателя информации
+       ,@INVOICE_ID_Sender           varchar(43)   --Идентификатор отправителя информации
+       ,@INVOICE_ProgramVersion      varchar(25)   --Версия программы, с помощью которой сформирован файл
+       ,@INVOICE_OperatorED          DSIDENTIFIER  --Оператор электронного документооборота
+       ,@INVOICE_BasisForCompilation varchar(120)  --Основание для составления файла-обмена
+
+declare @Tmp DSTINYINT
+
+if %Format! = 1
+begin       
+  exec FCD_INV_FndCSETValBySysName        
+         @SysName  = 'INVOICE_ID_Recipient',
+         @StrValue = @INVOICE_ID_Recipient output
+         
+  exec FCD_INV_FndCSETValBySysName
+         @SysName  = 'INVOICE_ID_Sender',
+         @StrValue = @INVOICE_ID_Sender output
+         
+  exec FCD_INV_FndCSETValBySysName
+         @SysName  = 'INVOICE_ProgramVersion',
+         @StrValue = @INVOICE_ProgramVersion output
+         
+  exec FCD_INV_FndCSETValBySysName
+         @SysName  = 'INVOICE_OperatorED',
+         @ID       = @INVOICE_OperatorED output
+         
+  exec FCD_INV_FndCSETValBySysName
+         @SysName  = 'INVOICE_BasisForCompilation',
+         @StrValue = @INVOICE_BasisForCompilation output
+         
+  select @INVOICE_ID_Recipient        = isnull(@INVOICE_ID_Recipient, '')        
+        ,@INVOICE_ID_Sender           = isnull(@INVOICE_ID_Sender, '')          
+        ,@INVOICE_ProgramVersion      = isnull(nullif(@INVOICE_ProgramVersion, ''), 'DIASOFT')     
+        ,@INVOICE_OperatorED          = isnull(@INVOICE_OperatorED, 0)    
+        ,@INVOICE_BasisForCompilation = isnull(@INVOICE_BasisForCompilation, '')       
+         
+end
+
+select @XMLReportID = XMLReportID 
+  from #Params     
+
+update #Params --вставка сделана в GetXMLReportID
+   set ClientHistory               = @ClientHistory               
+      ,R_T_PPR                     = @R_T_PPR                     
+      ,R_T_POK                     = @R_T_POK                     
+      ,R_T_KORSPPR                 = @R_T_KORSPPR                 
+      ,R_T_KORSPOK                 = @R_T_KORSPOK                 
+      ,FormatVersion               = @FormatVersion               
+      ,RegionCodeType              = @RegionCodeType              
+      ,CHECK_MANDATORY_MEMBER      = @CHECK_MANDATORY_MEMBER      
+      ,INVOICE_ID_Recipient        = @INVOICE_ID_Recipient        
+      ,INVOICE_ID_Sender           = @INVOICE_ID_Sender           
+      ,INVOICE_ProgramVersion      = @INVOICE_ProgramVersion      
+      ,INVOICE_OperatorED          = @INVOICE_OperatorED          
+      ,INVOICE_BasisForCompilation = @INVOICE_BasisForCompilation
+      ,LineNumberFlag              = @LineNumberFlag
+                                    
+select @GrUslID = SecInvoiceGroupID 
+  from tSecInvoiceGroup #M_NOLOCK_INDEX(0)
+ where brief = 'Услуги'
+#M_ISOLAT
+       
+select @MainID = isnull(ID,0)  --ID головной организации  
+  from tConfigParam   #M_NOLOCK_INDEX(XAK0tConfigParam) 
+ where SysName = 'InstitutionID'
+#M_ISOLAT 
+
+select @AddressTypeID_U  = AddressTypeID
+  from tAddressType adt #M_NOLOCK_INDEX(XAK1tAddressType)
+ where adt.Brief = 'Юридический'
+#M_ISOLAT
+
+select @AddressTypeID_F  = AddressTypeID
+  from tAddressType adt #M_NOLOCK_INDEX(XAK1tAddressType)
+ where adt.Brief = 'МестоРегистр'
+#M_ISOLAT
+
+select @AddressTypeID_P  = AddressTypeID
+  from tAddressType adt #M_NOLOCK_INDEX(XAK1tAddressType)
+ where adt.Brief = 'Почтовый'
+#M_ISOLAT 
+
+select @AttributeID1 = isnull(CntParamsID,0)
+  from tCntParams #M_NOLOCK_INDEX(XAK1tCntParams)  
+ where SysName = "DS_InstManualLastName"
+#M_ISOLAT 
+         
+select @AttributeID2 = isnull(CntParamsID,0)
+  from tCntParams #M_NOLOCK_INDEX(XAK1tCntParams)  
+ where SysName = "DS_InstManualName"
+#M_ISOLAT
+
+select @AttributeID3 = isnull(CntParamsID,0)
+  from tCntParams #M_NOLOCK_INDEX(XAK1tCntParams)  
+ where SysName = "DS_InstManualPatronymicName"        
+#M_ISOLAT
+
+select @AttributeID4 = isnull(CntParamsID,0)
+  from tCntParams #M_NOLOCK_INDEX(XAK1tCntParams)  
+ where SysName = "DS_InstManualAddress"        
+#M_ISOLAT
+
+select @AttributeID5 = isnull(CntParamsID,0)
+  from tCntParams #M_NOLOCK_INDEX(XAK1tCntParams)  
+ where SysName = "Agreement"        
+#M_ISOLAT
+
+select @schet = i.InstrumentID
+  from tConfigParam cp #M_NOLOCK_INDEX(XAK0tConfigParam)            
+      ,tInstrument   i #M_NOLOCK_INDEX(XPKtInstrument)
+ where cp.SysName     = 'COSTING_FO_ACCOUNT' 
+   and i.InstrumentID = cp.ID
+#M_ISOLAT
+#M_FORCEORDER  
+
+-- исходящий счет  
+select @schet_out = i.InstrumentID
+  from tConfigParam  cp #M_NOLOCK_INDEX(XAK0tConfigParam)            
+      ,tInstrument   i  #M_NOLOCK_INDEX(XPKtInstrument)
+ where cp.SysName     = 'COSTING_FO_ACCOUNT_OUT' 
+   and i.InstrumentID = cp.ID
+#M_ISOLAT
+#M_FORCEORDER   
+
+select @bill = i.InstrumentID
+  from tConfigParam  cp #M_NOLOCK_INDEX(XAK0tConfigParam)            
+      ,tInstrument   i  #M_NOLOCK_INDEX(XPKtInstrument)
+ where cp.SysName     = 'COSTING_FO_BILL' 
+   and i.InstrumentID = cp.ID
+#M_ISOLAT
+#M_FORCEORDER    
+
+select @act = i.InstrumentID
+  from tConfigParam  cp #M_NOLOCK_INDEX(XAK0tConfigParam)            
+      ,tInstrument   i  #M_NOLOCK_INDEX(XPKtInstrument)
+ where cp.SysName     = 'COSTING_FO_ACT' 
+   and i.InstrumentID = cp.ID
+#M_ISOLAT 
+#M_FORCEORDER
+
+select @AlterNameTypeID = AlterNameTypeID
+  from tAlterNameType #M_NOLOCK_INDEX(0)
+ where Brief = 'ФирмНаим'
+#M_ISOLAT     
+              
+insert #DopDocs
+select #Docs.DocID
+  from #Docs   
+  
+union   
+  
+select #Docs.BasicDocID
+  from #Docs  
+ where #Docs.BasicDocID is not null  
+#M_FORCEORDER
+
+delete tDocMark
+  from tDocMark  #M_ROWLOCK_INDEX(XPKtDocMark) 
+ where SPID = @@spid 
+   and Type = 1
+
+select @FakID = min(DocID) 
+  from #DopDocs 
+#M_ISOLAT
+
+while  @FakID is not null
+begin   
+  -- для исходящих счетов-фактур    
+  insert #ParentDocs         
+  select DocID      = @FakID
+        ,ParDocsNum = case
+                        when ch.OpCode = 9 
+                        then '№  -  от  -  '
+                        else '№ '+ ch.DocNumber + ' от '+ convert(varchar(10),ch.DocDate,104) +  '; '                      
+                      end  
+        ,NumExt     = ''
+        ,Source     = 0
+    from tDealTransact dt  #M_NOLOCK_INDEX(XPKtDealTransact)
+        ,tINVDealRelation par #M_NOLOCK_INDEX(XPKtINVDealRelation)
+        ,tDealTransact ch  #M_NOLOCK_INDEX(XPKtDealTransact)
+   where dt.DealTransactID = @FakID
+     and dt.Direction      = 1
+     and substring(dt.NumberExt,5,1) <> '1'
+     and par.RelType       = 46 
+     and par.ParentID      = dt.DealTransactID
+     and ch.DealTransactID = par.ChildID
+     and not exists(select 1
+                      from tResource r #M_NOLOCK_INDEX(XPKtResource)
+                     where r.ResourceID = ch.ResourcePsvID 
+                       and substring(r.Brief,1,5) = '60309')  
+   group by ch.Opcode, ch.DocNumber, ch.DocDate, ch.NumberExt
+  #M_FORCEORDER
+
+  if not exists (select 1 
+                   from #ParentDocs #M_NOLOCK_INDEX(XPKParentDocs)  
+                  where #ParentDocs.DocID = @FakID)              
+  begin              
+    insert #ParentDocs   
+    select DocID      = @FakID
+          ,ParDocsNum = case
+                          when doc.OpCode = 9 
+                          then '№  -  от  -  '
+                          else '№ '+ doc.DocNumber + ' от '+ convert(varchar(10),doc.DocDate,104) +  '; '
+                        end  
+          ,NumExt     = ''
+          ,Source     = 0
+      from tDealTransact dt  #M_NOLOCK_INDEX(XPKtDealTransact)  -- счет-фактура
+          ,tDealTransact sc  #M_NOLOCK_INDEX(XPKtDealTransact)  -- счет
+          ,tDealTransact doc #M_NOLOCK_INDEX(XIE2tDealTransact) -- исполнение     
+     where dt.DealTransactID = @FakID
+       and dt.Direction      = 1
+       and substring(dt.NumberExt,5,1) <> '1'
+       and sc.DealTransactID = dt.InitiatorID
+       and sc.InstrumentID   = @schet_out 
+       and doc.ParentID      = sc.DealTransactID
+       and doc.TransactType  = 5
+    #M_FORCEORDER    
+  end   
+  
+  -- если мы так и не нашли первичного документа для исходящих счет-фактур    
+  -- если введены вручную 
+  if not exists (select 1 
+                   from #ParentDocs #M_NOLOCK_INDEX(XPKParentDocs)  
+                  where #ParentDocs.DocID = @FakID)
+    insert #ParentDocs   
+    select DocID      = @FakID
+          ,ParDocsNum = case
+                          when isnull(convert(varchar(100), ie.PayDocNumber), '') not in ('', '0')
+                          then '№ ' + ltrim(rtrim(convert(varchar(100), ie.PayDocNumber))) + ' от ' + convert(varchar(10), dt.ValueDate, 104) +  '; '          
+                          else '№  -  от  -  '
+                        end 
+          ,NumExt     = ''
+          ,Source     = 0
+      from tDealTransact dt #M_NOLOCK_INDEX(XPKtDealTransact) -- счет-фактура
+      left join tInvTransactExt ie #M_NOLOCK_INDEX(XPKtInvTransactExt) 
+             on ie.DealTransactID = dt.DealTransactID
+            and @PaymentDocument = 1
+     where dt.DealTransactID = @FakID
+       and dt.Direction      = 1
+    #M_FORCEORDER    
+
+  -- для входящих счетов-фактур   
+  insert #ParentDocs   
+  select DocID      = @FakID
+        ,ParDocsNum = case
+                        when doc.OpCode = 9 
+                        then '№  -  от  -  '
+                        else '№ '+ doc.DocNumber + ' от '+ convert(varchar(10),doc.DocDate,104) +  '; '
+                      end    
+        ,NumExt     = ''
+        ,Source     = 0
+    from tDealTransact  dt  #M_NOLOCK_INDEX(XPKtDealTransact)  -- счет-фактура
+        ,tDealTransact  pr  #M_NOLOCK_INDEX(XPKtDealTransact)  -- накладна,акт
+        ,tDealTransact  sc  #M_NOLOCK_INDEX(XPKtDealTransact)  -- счет
+        ,tDealTransact  doc #M_NOLOCK_INDEX(XIE2tDealTransact) -- исполнение   
+   where dt.DealTransactID = @FakID
+     and dt.Direction      = 0
+     and substring(dt.NumberExt,5,1) <> '1'     
+     and pr.DealTransactID = dt.InitiatorID
+     and pr.InstrumentID   in (@Bill,@Act)
+     and sc.DealTransactID = pr.InitiatorID
+     and sc.InstrumentID   = @schet
+     and doc.ParentID      = sc.DealTransactID
+     and doc.TransactType  = 5
+  #M_FORCEORDER 
+   
+  if not exists (select 1 
+                   from #ParentDocs #M_NOLOCK_INDEX(XPKParentDocs) 
+                  where DocID  = @FakID)
+    insert #ParentDocs   
+    select DocID      = @FakID
+          ,ParDocsNum = case
+                          when doc.Opcode = 9 
+                          then '№  -  от  -  '
+                          else '№ '+ doc.DocNumber + ' от '+ convert(varchar(10),doc.DocDate,104) +  '; '
+                        end
+          ,NumExt     = ''
+          ,Source     = 0
+      from tDealTransact dt  #M_NOLOCK_INDEX(XPKtDealTransact)
+          ,tDealTransact pr  #M_NOLOCK_INDEX(XPKtDealTransact)
+          ,tDealTransact doc #M_NOLOCK_INDEX(XIE2tDealTransact)     
+     where dt.DealTransactID = @FakID
+       and dt.Direction      = 0
+       and substring(dt.NumberExt,5,1) <> '1'
+       and pr.DealTransactID = dt.InitiatorID
+       and pr.InstrumentID   = @schet
+       and doc.ParentID      = pr.DealTransactID
+       and doc.TransactType  = 5
+    #M_FORCEORDER       
+
+  --- для входящих счетов- фактур, если введены вручную   
+  if not exists (select 1 
+                   from #ParentDocs #M_NOLOCK_INDEX(XPKParentDocs)  
+                  where #ParentDocs.DocID  = @FakID)   
+    insert #ParentDocs   
+    select DocID      = @FakID
+          ,ParDocsNum = case
+                          when isnull(convert(varchar(100), ie.PayDocNumber), '') not in ('', '0')
+                          then '№ ' + ltrim(rtrim(convert(varchar(100), ie.PayDocNumber))) + ' от ' + convert(varchar(10), dt.ValueDate, 104) +  '; '          
+                          else '№  -  от  -  '
+                        end
+          ,NumExt     = ''
+          ,Source     = 0
+      from tDealTransact dt #M_NOLOCK_INDEX(XPKtDealTransact) -- счет-фактура
+      left join tInvTransactExt ie #M_NOLOCK_INDEX(XPKtInvTransactExt) 
+             on ie.DealTransactID = dt.DealTransactID
+            and @PaymentDocument = 1 
+     where dt.DealTransactID = @FakID
+       and dt.Direction      = 0   
+    #M_FORCEORDER
+     
+  insert tDocMark #M_WITH_ROWLOCK (SPID, Type, ID)
+  select @@spid
+        ,1
+        ,@FakID
+      
+  if exists(select 1
+              from #ParentDocs #M_NOLOCK_INDEX(XPKParentDocs) 
+             where DocID  = @FakID
+               and NumExt = '1')
+    update #ParentDocs
+       set ParDocsNum = '№  -  от  -  ' 
+     where DocID = @FakID                        
+
+  ------ если еще не начитали значение, то попытка определить через связанный авансовый СФ ------
+  select @LinkedInvoiceID = null
+  if not exists(select 1
+                  from #ParentDocs #M_NOLOCK_INDEX(XPKParentDocs) 
+                 where DocID  = @FakID
+                   and ParDocsNum <> '№  -  от  -  ' )  or
+    @PaymentDocument = 1
+
+    select @LinkedInvoiceID = max(ParentID) 
+      from tINVDealRelation       r  #M_NOLOCK_INDEX(XIE4tINVDealRelation)
+     where r.ChildID = @FakID
+       and r.RelType  = 231 --DR_AVANINV_INVOPL  
+    #M_ISOLAT  
+
+  if isnull(@LinkedInvoiceID, 0) > 0 and @PaymentDocument = 1
+    delete #ParentDocs            
+     from #ParentDocs #M_NOLOCK_INDEX(XPKParentDocs) 
+    where DocID  = @FakID
+      and ParDocsNum <> '№  -  от  -  ' 
+
+  if @LinkedInvoiceID is not null
+  begin                      
+    insert #ParentDocs --из первичного документа привязанного к авансовому СФ  
+    select DocID      = @FakID
+          ,ParDocsNum = '№ ' + dt.DocNumber + ' от ' + convert(varchar(10), dt.DocDate, 104) +  '; '    
+          ,NumExt     = ''
+          ,Source     = 1
+      from tINVDealRelation       r  #M_NOLOCK_INDEX(XPKtINVDealRelation)
+     inner join tDealTransact     dt #M_NOLOCK_INDEX(XPKtDealTransact)
+             on dt.DealTransactID = r.ChildID
+            and dt.TransactType   = 5
+     where r.ParentID = @LinkedInvoiceID
+       and r.RelType  = 46 --DR_FACT          
+    #M_FORCEORDER
+                                                 
+    if @@rowcount = 0 --нет первичного документа        
+      insert #ParentDocs    --тогда из самого авансового СФ
+      select DocID      = @FakID
+            ,ParDocsNum = '№ ' + ltrim(rtrim(convert(varchar(100), ie.PayDocNumber))) + ' от ' + convert(varchar(10), dt.ValueDate, 104) +  '; '
+            ,NumExt     = ''
+            ,Source     = 1 
+        from tDealTransact dt #M_NOLOCK_INDEX(XPKtDealTransact) -- счет-фактура
+       inner join tInvTransactExt ie #M_NOLOCK_INDEX(XPKtInvTransactExt) 
+               on ie.DealTransactID = dt.DealTransactID
+              and convert(varchar(100), ie.PayDocNumber) not in ('', '0') 
+              and dt.ValueDate <> '19000101'
+       where dt.DealTransactID = @LinkedInvoiceID
+      #M_FORCEORDER      
+  end 
+  
+  select @FakID = min(DocID) 
+    from #DopDocs 
+   where DocID > @FakID
+  #M_ISOLAT
+           
+end
+
+delete #ParentDocs              
+  from #ParentDocs #M_ROWLOCK_INDEX(XPKParentDocs) 
+ where ParDocsNum = '№  -  от  -  '
+ 
+                  
+---------- данные по клиентам из истории ----------
+delete pRKO_Rep_Institution
+  from pRKO_Rep_Institution #M_ROWLOCK_INDEX(XPKpRKO_Rep_Institution) 
+ where SPID = @@spid
+ 
+insert pRKO_Rep_Institution #M_WITH_ROWLOCK
+       (
+       SPID                                             
+      ,InstitutionID                                 
+      ,OnDate
+       )
+select @@spid
+      ,InstitutionID = i.InstitutionID
+      ,OnDate        = case when @ClientHistory = 1 then dt.TermDate else '19000101' end
+  from #Docs               dm
+ inner join tDealTransact  dt    #M_NOLOCK_INDEX(XPKtDealTransact)
+         on dt.DealTransactID    = dm.DocID
+ inner join tInstitution   xi    #M_NOLOCK_INDEX(XPKtInstitution)  
+         on xi.InstitutionID     in (dt.InstitutionID, dt.InstSecondID) 
+ inner join tInstitution   i     #M_NOLOCK_INDEX(XPKtInstitution)  
+         on i.InstitutionID      in (xi.ParentID, xi.InstitutionID, dt.OpCode, dt.ProcType, @MainID) 
+ group by i.InstitutionID, case when @ClientHistory = 1 then dt.TermDate else '19000101' end   
+#M_FORCEORDER
+
+exec RKO_GetParticipantListOnDate
+---------------------------------------------------
+  
+select @FaktID = min(DocID) 
+  from #Docs
+#M_ISOLAT
+
+while @FaktID is not null          
+begin 
+
+  select @BasisDealTranID = BasisDealTranID
+        ,@DocType  = dt.Type 
+        ,@v_delete = v_delete
+    from #DocsDopParams
+   inner join tDealTransact dt  #M_NOLOCK_INDEX(XPKtDealTransact)         
+           on dt.DealTransactID     = @FaktID 
+   where DocID = @FaktID 
+  #M_ISOLAT
+  #M_FORCEORDER
+
+  select @FaktID1 = @FaktID
+
+  exec CostDoc_FillWare
+         @DealTransactID  = @FaktID1          
+        ,@ParentID        = 0                
+        ,@Fixer           = 1                
+        ,@FundID          = 0                
+        ,@FixAdd          = 0                
+        ,@Type            = @DocType
+        ,@BasisDealTranID = @BasisDealTranID
+
+  #M_FORCEPLAN         
+
+    insert #ware                       
+    select p.InvoiceWareID  
+          ,@FaktID 
+          ,p.InvoiceDate    
+          ,p.SecurityID     
+          ,isnull(s.Brief,cs.Brief)  
+          ,isnull(s.Name,cs.Name)   
+          ,p.Quantity
+          ,p.Price
+          ,p.VATRateID
+          ,p.VATRate
+          ,p.Payment
+          ,p.VATPay
+          ,f.Brief
+          ,f.Number
+          ,p.FundID
+          ,p.DateEnd
+          ,p.InitiatorID
+          ,p.ParentID
+          ,p.TransactType
+          ,p.Comment
+          ,p.CountryID
+          ,p.GTD
+          ,p.RPrice
+          ,p.PriceBuying
+          ,CorrectAmount    = p.QuantityPrnt
+          ,CorrectTarif     = p.RPricePrnt
+          ,CorrectTax       = nds.Qty
+          ,CorrectSumOutNDS = p.QuantityPrnt*p.PricePrnt - p.VATPayPrnt
+          ,CorrectSum       = p.PaymentPrnt
+          ,CorrectNDS       = p.VATPayPrnt
+      from pInvoiceWare p #M_NOLOCK_INDEX(XPKpInvoiceWare)
+      left join tSecInvoice s   #M_NOLOCK_INDEX(XPKtSecInvoice)
+             on s.SecInvoiceID  = p.SecurityID
+      left join tRKO_Currency_Sync cs #M_NOLOCK_INDEX(XPKtRKO_Currency_Sync)
+             on cs.CurrencyID = p.SecurityID            
+     inner join tRKO_Currency_Sync f #M_NOLOCK_INDEX(XPKtRKO_Currency_Sync)
+             on f.CurrencyID = p.FundID            
+      left join tVATRate      nds  #M_NOLOCK_INDEX(XPKtVATRate) // ставки НДС 
+             on nds.VATRateID      = p.VATRateID
+             
+     where p.SPID       = @@spid
+    #M_FORCEORDER                  
+
+  select @FaktID = min(DocID) 
+    from #Docs  
+   where DocID > @FaktID   
+    #M_ISOLAT       
+
+end
+
+------------------------------------------------
+insert #WareParent
+       (                                    
+       SecInvoiceID,
+       GroupID     
+       )
+select war.SecurityID,
+       tov.GroupID
+  from #ware                   war  #M_NOLOCK_INDEX(0)
+  left join tSecInvoice        tov  #M_NOLOCK_INDEX(XPKtSecInvoice)
+         on tov.SecInvoiceID   =    war.SecurityID
+        and isnull(tov.GroupID, 0) > 0
+ group by war.SecurityID, tov.GroupID
+#M_FORCEORDER
+
+while 1 = 1
+begin
+  update #WareParent
+     set GroupID = case
+                     when sg.ParentID > 0        then sg.ParentID
+                     when sg.Brief    = 'Услуги' then -1
+                     else  -2
+                   end
+    from #WareParent wp #M_NOLOCK_INDEX(XAK1WareParent)
+   inner join tSecInvoiceGroup sg #M_NOLOCK_INDEX(XPKtSecInvoiceGroup)
+           on sg.SecInvoiceGroupID = wp.GroupID
+   where GroupID > 0
+  #M_FORCEORDER
+
+  select @Tmp = 0
+  select @Tmp = 1
+    from #WareParent wp #M_NOLOCK_INDEX(XAK1WareParent)
+   where GroupID > 0
+
+  if @Tmp = 0
+    break
+end
+
+update #Docs
+   set GrUsl = 1
+  from #Docs                     dm
+ inner join tDealTransact        dt #M_NOLOCK_INDEX(XPKtDealTransact)
+         on dt.DealTransactID    =  dm.DocID
+        and dt.TransactType      =  18
+ inner join #ware war  #M_NOLOCK_INDEX(XIE1ware)
+         on war.DealTransactID = dt.DealTransactID
+ inner join #WareParent wp #M_NOLOCK_INDEX(XPKWareParent)
+         on wp.SecInvoiceID = war.SecurityID
+        and wp.GroupID      = - 1 
+#M_FORCEORDER
+
+insert #Result_Invoices  
+       (
+       Number           
+      ,[Date]           
+      ,FakturaID        
+      ,ParDocsNum       
+      ,Seller           
+      ,SelAddress       
+      ,SelAddressID       
+      ,SelINN
+      ,SellKPP           
+      ,Buyer            
+      ,BuyAddress       
+      ,BuyAddressID       
+      ,BuyINN
+      ,BuyKPP           
+      ,Gruzootpravitel  
+      ,GruzootpravitelID
+      ,GruzOtprAddress  
+      ,GruzOtprAddressID  
+      ,Gruzopoluchatel  
+      ,GruzopoluchatelID  
+      ,GruzPolAddress   
+      ,GruzPolAddressID   
+      ,Fund             
+      ,Correct          
+      ,ChangeNum        
+      ,ChangeDate       
+      ,TaxAgent
+      ,TaxAgentDDP
+      ,CodeVO           
+      ,UpFrontMoney     
+      ,InfactNum        
+      ,InfactDate       
+      ,InfactChangeNum  
+      ,InfactChangeDate
+      ,OnDate 
+      ,FileName
+       )
+select Number          = case 
+                           when ddp.Type in (0,1)
+                           then ltrim(rtrim(dt.Series))
+                           else ddp.DocNumber
+                         end  
+      ,Date            = case 
+                           when ddp.Type in (0,1)
+                           then dt.TermDate
+                           else ddp.DocDate
+                         end  
+      ,FakturaID       = dm.DocID         
+      ,ParDocsNum      = case
+                           when isnull(ea5.AttributeID, 0) = 0
+                           then isnull(pds.ParDocsNum, '№  -  от  -  ')
+
+                           when isnull(ir.Number, '') <> '' 
+                           then '№ ' + ir.Number + ' от ' + convert(varchar(10), ir.Date,104) + '; '
+                                    
+                           else '№  -  от  -  ' 
+                         end
+      ,Seller          = case
+                           when isnull(ltrim(rtrim(ian1.Name)),'') <> ''
+                           then isnull(ltrim(rtrim(ian1.Name)),'')
+                           else ltrim(rtrim(#M_CONVERT_NCHAR(i.Name)))
+                         end           
+      ,SelAddress      = case 
+                           when iadr.Name <> '' 
+                           then iadr.Name
+                           else '-' 
+                         end      
+      ,SelAddressID    = iadr.InstAddressID
+      ,SelINN          = case 
+                           when i.MainMember = 1       
+                            and i.INN <> ''      
+                           then i.INN 
+                           else '-' 
+                         end  
+      ,SellKPP          = case 
+                           when i.MainMember = 1
+                            and #M_CONVERT_NCHAR(rti.Reuters) <> ''
+                            and isnull(re1.InstitutionID,0)=0
+                           then #M_CONVERT_NCHAR(rti.Reuters) 
+                           else '-'
+                         end 
+      ,Buyer           = case 
+                           when isnull(ltrim(rtrim(ian2.Name)),'') <> ''
+                           then isnull(ltrim(rtrim(ian2.Name)),'')
+                           else case when isnull(ea1.Value,'')<>''
+                                     then ea1.Value + ' ' + isnull(ltrim(rtrim(ea2.Value)),'')
+                                + ' ' + isnull(ltrim(rtrim(ea3.Value)),'')
+                                else #M_CONVERT_NCHAR(i2.Name)
+                                end
+                         end
+      ,BuyAddress      = case when isnull(ea4.Value,'')<>''
+                              then ea4.Value
+                              when #M_CONVERT_NCHAR(iadr2.Name) <> '' 
+                              then #M_CONVERT_NCHAR(iadr2.Name)
+                         else '-' 
+                         end  
+      ,BuyAddressID    = case 
+                           when isnull(ea4.Value,'')<>''
+                           then null
+                           else iadr2.InstAddressID
+                         end  
+      ,BuyINN           = case 
+                           when i2.INN <> '' 
+                           then i2.INN 
+                           else '-' 
+                         end  
+      ,BuyKPP        =   case 
+                           when #M_CONVERT_NCHAR(rti2.Reuters) <> ''
+                            and isnull(re2.InstitutionID,0)=0
+                           then #M_CONVERT_NCHAR(rti2.Reuters) 
+                           else '-' 
+                         end     
+      ,Gruzootpravitel = case 
+                           when ddp.TaxAgent = 1 
+                             or ddp.UpFrontMoney = 1
+                             or isnull(dm.GrUsl, 0) = 1
+                           then '-'
+                           when gro.InstitutionID = i.InstitutionID
+                             or (isnull(dt.InstSecondID, 0) = 0 and dt.Direction = 0)
+                             or gro.InstitutionID is null     
+                           then 'он же' 
+                           when isnull(ltrim(rtrim(ian3.Name)),'') <> ''
+                           then isnull(ltrim(rtrim(ian3.Name)),'')
+                           else ltrim(rtrim(#M_CONVERT_NCHAR(gro.Name)))
+                         end       
+      ,GruzootpravitelID = case 
+                             when ddp.TaxAgent = 1 
+                               or ddp.UpFrontMoney = 1
+                               or isnull(dm.GrUsl, 0) = 1
+                             then null
+                             when gro.InstitutionID = i.InstitutionID
+                               or (isnull(dt.InstSecondID, 0) = 0 and dt.Direction = 0)
+                               or gro.InstitutionID is null     
+                             then null 
+                             when isnull(ltrim(rtrim(ian3.Name)),'') <> ''
+                             then ian3.InstitutionID
+                             else gro.InstitutionID
+                           end       
+      ,GruzOtprAddress = case 
+                           when ddp.TaxAgent = 1
+                             or ddp.UpFrontMoney = 1
+                             or isnull(dm.GrUsl, 0) = 1
+                           then ''
+                           when gro.InstitutionID = i.InstitutionID
+                             or (isnull(dt.InstSecondID, 0) = 0 and dt.Direction = 0)
+                             or gro.InstitutionID is null     
+                           then '' 
+                           else ' ' + coalesce(#M_CONVERT_NCHAR(igro.Name), #M_CONVERT_NCHAR(igro1.Name), '')
+                         end                               
+      ,GruzOtprAddressID = case 
+                             when ddp.TaxAgent = 1
+                               or ddp.UpFrontMoney = 1
+                               or isnull(dm.GrUsl, 0) = 1
+                             then null
+                             when gro.InstitutionID = i.InstitutionID
+                               or (isnull(dt.InstSecondID, 0) = 0 and dt.Direction = 0)
+                               or gro.InstitutionID is null     
+                             then null 
+                             else isnull(igro.InstAddressID, igro1.InstAddressID)
+                           end                               
+      ,Gruzopoluchatel = case 
+                           when ddp.TaxAgent = 1 
+                             or ddp.UpFrontMoney = 1
+                             or isnull(dm.GrUsl, 0) = 1
+                           then '-'
+                           else case
+                                         when ltrim(rtrim(#M_CONVERT_NCHAR(grp.Name))) = ltrim(rtrim(#M_CONVERT_NCHAR(i2.Name))) 
+                                           or (isnull(dt.InstSecondID, 0) = 0 
+                                               and dt.Direction = 1)
+                                         then case 
+                                                when isnull(dt.InstSecondID, 0) = 0
+                                                 and dt.Direction = 1
+                                                then isnull(ea1.Value, "") + " " + isnull(ea2.Value, "") + " " 
+                                                   + isnull(ea3.Value, "")
+                                                else case
+                                                       when isnull(ltrim(rtrim(ian2.Name)),'') <> ''
+                                                       then isnull(ltrim(rtrim(ian2.Name)),'')
+                                                       else #M_CONVERT_NCHAR(i2.Name)
+                                                     end  
+                                              end          
+                                         else case
+                                                when isnull(ltrim(rtrim(ian4.Name)),'') <> ''
+                                                then isnull(ltrim(rtrim(ian4.Name)),'')
+                                                else ltrim(rtrim(#M_CONVERT_NCHAR(grp.Name))) 
+                                              end  
+                                       end
+                         end       
+      ,GruzopoluchatelID = case 
+                             when ddp.TaxAgent = 1 
+                               or ddp.UpFrontMoney = 1
+                               or isnull(dm.GrUsl, 0) = 1
+                             then null
+                             else case
+                                    when ltrim(rtrim(#M_CONVERT_NCHAR(grp.Name))) = ltrim(rtrim(#M_CONVERT_NCHAR(i2.Name))) 
+                                      or (isnull(dt.InstSecondID, 0) = 0 
+                                          and dt.Direction = 1)
+                                    then case 
+                                           when isnull(dt.InstSecondID, 0) = 0
+                                            and dt.Direction = 1
+                                           then null
+                                           else case
+                                                  when isnull(ltrim(rtrim(ian2.Name)),'') <> ''
+                                                  then ian2.InstitutionID
+                                                  else i2.InstitutionID
+                                                end  
+                                         end          
+                                    else case
+                                           when isnull(ltrim(rtrim(ian4.Name)),'') <> ''
+                                           then ian4.InstitutionID
+                                           else grp.InstitutionID 
+                                         end  
+                                  end
+                           end       
+      ,GruzPolAddress  = case 
+                           when ddp.TaxAgent = 1
+                             or ddp.UpFrontMoney = 1
+                             or isnull(dm.GrUsl, 0) = 1
+                           then ''
+                           else case
+                                  when ltrim(rtrim(#M_CONVERT_NCHAR(grp.Name))) = ltrim(rtrim(#M_CONVERT_NCHAR(i2.Name))) 
+                                    or (isnull(dt.InstSecondID, 0) = 0 
+                                        and dt.Direction = 1)
+                                  then case 
+                                         when isnull(dt.InstSecondID, 0) = 0
+                                          and dt.Direction = 1
+                                         then ' ' + isnull(ea4.Value,'')
+                                         else ' ' + isnull(#M_CONVERT_NCHAR(iadr2.Name),'') 
+                                       end          
+                                  else ' '
+                                end
+                         end
+      ,GruzPolAddressID  = case 
+                             when ddp.TaxAgent = 1
+                               or ddp.UpFrontMoney = 1
+                               or isnull(dm.GrUsl, 0) = 1
+                             then null
+                             else case
+                                    when ltrim(rtrim(#M_CONVERT_NCHAR(grp.Name))) = ltrim(rtrim(#M_CONVERT_NCHAR(i2.Name))) 
+                                      or (isnull(dt.InstSecondID, 0) = 0 
+                                          and dt.Direction = 1)
+                                    then case 
+                                           when isnull(dt.InstSecondID, 0) = 0
+                                            and dt.Direction = 1
+                                           then null
+                                           else iadr2.InstAddressID 
+                                         end          
+                                    else null
+                                  end
+                           end
+      ,Fund = 'Валюта: наименование, код  ' + rtrim(sec.Name)+', '+case
+                                                                     when rtrim(sec.IsoNumber)='810'
+                                                                     then '643'
+                                                                     else rtrim(sec.IsoNumber)
+                                                                   end
+      ,Correct = ddp.Correct
+
+      ,ChangeNum           = ddp.ChangeNum         
+      ,ChangeDate          = ddp.ChangeDate        
+      ,TaxAgent            = case 
+                               when dt.Direction = 1
+                                and ddp.TaxAgent = 1
+                               then 1
+                               else 0
+                             end
+      ,TaxAgentDDP         = ddp.TaxAgent                                
+      ,CodeVO              = ddp.CodeVO            
+      ,UpFrontMoney        = ddp.UpFrontMoney      
+      ,InfactNum           = ddp.InfactNum         
+      ,InfactDate          = ddp.InfactDate        
+      ,InfactChangeNum     = ddp.InfactChangeNum   
+      ,InfactChangeDate    = ddp.InfactChangeDate
+      ,OnDate              = case when @ClientHistory = 1 then dt.TermDate else '19000101' end 
+      ,FileName            = ddp.FileName
+  from #Docs               dm
+ inner join tDealTransact  dt    #M_NOLOCK_INDEX(XPKtDealTransact)
+         on dt.DealTransactID    = dm.DocID
+        and dt.TransactType      = 18
+ inner join tDocMark dminstr #M_NOLOCK_INDEX(XPKtDocMark)
+         on dminstr.SPID    = @@spid
+        and dminstr.Type    = 3
+        and dminstr.ID      = dt.InstrumentID 
+  left join tINVDealRelation r3 #M_NOLOCK_INDEX(XPKtINVDealRelation)
+         on r3.RelType  = 149
+        and r3.ParentID = dt.DealTransactID      
+        and dt.Type     = 2
+  left join tCurrency sec   #M_NOLOCK_INDEX(XPKtCurrency)       
+         on sec.CurrencyID = (select max(cw.FundID)
+                                 from tCostWare  cw #M_NOLOCK_INDEX(XIE0tCostWare)
+                                where cw.CostDocID = dm.DocID )
+ inner join #DocsDopParams ddp  #M_NOLOCK_INDEX(XPKDocsDopParams)         
+         on ddp.DocID     = dm.DocID
+  left join pRKO_Rep_Institution   xi    #M_NOLOCK_INDEX(XPKpRKO_Rep_Institution)  
+         on xi.InstitutionID = case 
+                                 when dt.Direction = 1 
+                                 then case 
+                                        when @MainSeller = 1
+                                        then @MainID
+                                        else dt.InstitutionID 
+                                      end
+                                 else dt.InstSecondID 
+                               end
+        and xi.OnDate = case when @ClientHistory = 1 then dt.TermDate else '19000101' end 
+        and xi.SPID   = @@spid                           
+  left join pRKO_Rep_Institution   i     #M_NOLOCK_INDEX(XPKpRKO_Rep_Institution)  
+         on i.InstitutionID      = case 
+                                     when xi.InstType = 3 --отделение    
+                                     then xi.ParentID 
+                                     else xi.InstitutionID   
+                                   end 
+        and i.OnDate = case when @ClientHistory = 1 then dt.TermDate else '19000101' end                            
+        and i.SPID   = @@spid                           
+  left join pRKO_Rep_InstAddress   iadr  #M_NOLOCK_INDEX(XIE1pRKO_Rep_InstAddress)
+         on iadr.InstitutionID   = i.InstitutionID
+        and iadr.AddressTypeID   = case
+                                     when i.PropDealPart = 1
+                                     then @AddressTypeID_U 
+                                     else @AddressTypeID_F
+                                   end
+        and iadr.Sign not in (2,3) 
+        and iadr.OnDate = case when @ClientHistory = 1 then dt.TermDate else '19000101' end      
+        and iadr.SPID   = @@spid                           
+  left join pRKO_Rep_Reuters       rti   #M_NOLOCK_INDEX(XPKpRKO_Rep_Reuters)    
+         on rti.ReutersID        = case 
+                                     when dt.Direction = 1 
+                                     then dt.ResourcePsvID 
+                                     else dt.ResSecondPsvID 
+                                   end
+        and rti.OnDate = case when @ClientHistory = 1 then dt.TermDate else '19000101' end                            
+        and rti.SPID   = @@spid                           
+  left join pRKO_Rep_Institution   xi2   #M_NOLOCK_INDEX(XPKpRKO_Rep_Institution)
+         on xi2.InstitutionID    = case 
+                                     when dt.Direction = 0 
+                                     then dt.InstitutionID 
+                                     else dt.InstSecondID 
+                                   end 
+        and xi2.OnDate = case when @ClientHistory = 1 then dt.TermDate else '19000101' end                            
+        and xi2.SPID   = @@spid                           
+                                 
+  left join pRKO_Rep_Institution   i2    #M_NOLOCK_INDEX(XPKpRKO_Rep_Institution)
+         on i2.InstitutionID     = case 
+                                     when xi2.InstType = 3 --отделение  
+                                     then xi2.ParentID 
+                                     else xi2.InstitutionID     
+                                   end
+        and i2.OnDate = case when @ClientHistory = 1 then dt.TermDate else '19000101' end                            
+        and i2.SPID   = @@spid          
+  left join pRKO_Rep_InstAddress   iadr2 #M_NOLOCK_INDEX(XIE1pRKO_Rep_InstAddress)
+         on iadr2.InstitutionID  = i2.InstitutionID          
+        and iadr2.AddressTypeID  = case
+                                     when i2.PropDealPart = 1
+                                     then @AddressTypeID_U 
+                                     else @AddressTypeID_F
+                                   end
+        and iadr2.Sign not in (2,3)                                     
+        and iadr2.OnDate = case when @ClientHistory = 1 then dt.TermDate else '19000101' end                            
+        and iadr2.SPID   = @@spid                           
+  left join pRKO_Rep_Reuters       rti2  #M_NOLOCK_INDEX(XPKpRKO_Rep_Reuters)
+         on rti2.ReutersID       = case 
+                                     when dt.Direction = 0 
+                                     then dt.ResourcePsvID 
+                                     else dt.ResSecondPsvID 
+                                   end
+        and rti2.OnDate = case when @ClientHistory = 1 then dt.TermDate else '19000101' end                            
+        and rti2.SPID   = @@spid                           
+  left join pRKO_Rep_Institution   gro   #M_NOLOCK_INDEX(XPKpRKO_Rep_Institution)
+         on gro.InstitutionID    = dt.OpCode
+        and gro.OnDate = case when @ClientHistory = 1 then dt.TermDate else '19000101' end                            
+        and gro.SPID   = @@spid                           
+  left join pRKO_Rep_InstAddress   igro  #M_NOLOCK_INDEX(XIE1pRKO_Rep_InstAddress)
+         on igro.InstitutionID   = gro.InstitutionID          
+        and igro.AddressTypeID   = @AddressTypeID_P                                  
+        and igro.Sign   not in (2, 3)
+        and igro.OnDate = case when @ClientHistory = 1 then dt.TermDate else '19000101' end                            
+        and igro.SPID   = @@spid                           
+  left join pRKO_Rep_InstAddress   igro1 #M_NOLOCK_INDEX(XIE1pRKO_Rep_InstAddress)
+         on igro1.InstitutionID  = gro.InstitutionID                                                
+        and igro1.AddressTypeID  = case
+                                     when gro.PropDealPart = 1
+                                     then @AddressTypeID_U 
+                                     else @AddressTypeID_F
+                                   end
+        and igro1.Sign           not in (2, 3)       
+        and igro1.OnDate         = case when @ClientHistory = 1 then dt.TermDate else '19000101' end                            
+        and igro1.SPID           = @@spid                           
+  left join pRKO_Rep_Institution   grp   #M_NOLOCK_INDEX(XPKpRKO_Rep_Institution)
+         on grp.InstitutionID    = dt.ProcType                      
+        and grp.OnDate = case when @ClientHistory = 1 then dt.TermDate else '19000101' end                            
+        and grp.SPID   = @@spid                           
+  left join tEntAttrValue  ea1   #M_NOLOCK_INDEX(XIE1tEntAttrValue)  
+         on ea1.AttributeID      = @AttributeID1
+        and ea1.InterfaceType    = 0
+        and ea1.ObjectID         = dt.DealTransactID
+  left join tEntAttrValue  ea2   #M_NOLOCK_INDEX(XIE1tEntAttrValue)  
+         on ea2.AttributeID      = @AttributeID2
+        and ea2.InterfaceType    = 0
+        and ea2.ObjectID         = dt.DealTransactID
+  left join tEntAttrValue  ea3   #M_NOLOCK_INDEX(XIE1tEntAttrValue)  
+         on ea3.AttributeID      = @AttributeID3
+        and ea3.InterfaceType    = 0
+        and ea3.ObjectID         = dt.DealTransactID
+  left join tEntAttrValue  ea4   #M_NOLOCK_INDEX(XIE1tEntAttrValue)  
+         on ea4.AttributeID      = @AttributeID4
+        and ea4.InterfaceType    = 0
+        and ea4.ObjectID         = dt.DealTransactID
+  left join tEntAttrValue  ea5   #M_NOLOCK_INDEX(XIE1tEntAttrValue)  
+         on ea5.AttributeID      = @AttributeID5
+        and ea5.InterfaceType    = 0
+        and ea5.ObjectID         = dt.DealTransactID
+  left join tRkoContract ir   #M_NOLOCK_INDEX(XPKtRkoContract)
+         on ir.RkoContractID = ea5.PKey
+  left join pRKO_Rep_Reuters       re1   #M_NOLOCK_INDEX(XAK1pRKO_Rep_Reuters)
+         on re1.InstitutionID    = i.InstitutionID
+        and re1.IsDefault        = 1 
+        and #M_CONVERT_NCHAR(re1.Reuters) in ('ИП','ПБОЮЛ')
+        and re1.OnDate = case when @ClientHistory = 1 then dt.TermDate else '19000101' end                            
+        and re1.SPID   = @@spid                           
+  left join tReuterCode    rc1   #M_NOLOCK_INDEX(XPKtReuterCode) 
+         on rc1.TypeCodeID       = re1.TradingSysID
+        and rc1.Brief            = #M_CONVERT_NCHAR(re1.Reuters)                                 
+  left join pRKO_Rep_Reuters       re2   #M_NOLOCK_INDEX(XAK1pRKO_Rep_Reuters)
+         on re2.InstitutionID    = i2.InstitutionID
+        and re2.IsDefault        = 1 
+        and #M_CONVERT_NCHAR(re2.Reuters) in ('ИП','ПБОЮЛ')
+        and re2.OnDate = case when @ClientHistory = 1 then dt.TermDate else '19000101' end                            
+        and re2.SPID   = @@spid                           
+  left join tReuterCode    rc2   #M_NOLOCK_INDEX(XPKtReuterCode) 
+         on rc2.TypeCodeID       = re2.TradingSysID
+        and rc2.Brief            = #M_CONVERT_NCHAR(re2.Reuters)                         
+        
+  left join tInstAlterName ian1  #M_NOLOCK_INDEX(XAK1tInstAlterName)
+         on ian1.InstitutionID   = i.InstitutionID
+        and ian1.AlterNameTypeID = @AlterNameTypeID
+        and ian1.DateStart       = (select max(ian5.DateStart)
+                                      from tInstAlterName ian5 #M_NOLOCK_INDEX(XAK1tInstAlterName)
+                                     where ian5.InstitutionID   = i.InstitutionID
+                                       and ian5.AlterNameTypeID = @AlterNameTypeID
+                                       and ian5.DateStart      <= dt.TermDate)                              
+        
+  left join tInstAlterName ian2  #M_NOLOCK_INDEX(XAK1tInstAlterName)
+         on ian2.InstitutionID   = i2.InstitutionID
+        and ian2.AlterNameTypeID = @AlterNameTypeID
+        and ian2.DateStart       = (select max(ian5.DateStart)
+                                      from tInstAlterName ian5 #M_NOLOCK_INDEX(XAK1tInstAlterName)
+                                     where ian5.InstitutionID   = i2.InstitutionID
+                                       and ian5.AlterNameTypeID = @AlterNameTypeID
+                                       and ian5.DateStart      <= dt.TermDate)         
+        
+  left join tInstAlterName ian3  #M_NOLOCK_INDEX(XAK1tInstAlterName)
+         on ian3.InstitutionID   = gro.InstitutionID
+        and ian3.AlterNameTypeID = @AlterNameTypeID
+        and ian3.DateStart       = (select max(ian5.DateStart)
+                                      from tInstAlterName ian5 #M_NOLOCK_INDEX(XAK1tInstAlterName)
+                                     where ian5.InstitutionID   = gro.InstitutionID
+                                       and ian5.AlterNameTypeID = @AlterNameTypeID
+                                       and ian5.DateStart      <= dt.TermDate)         
+        
+  left join tInstAlterName ian4  #M_NOLOCK_INDEX(XAK1tInstAlterName)
+         on ian4.InstitutionID   = grp.InstitutionID
+        and ian4.AlterNameTypeID = @AlterNameTypeID
+        and ian4.DateStart       = (select max(ian5.DateStart)
+                                      from tInstAlterName ian5 #M_NOLOCK_INDEX(XAK1tInstAlterName)
+                                     where ian5.InstitutionID   = grp.InstitutionID
+                                       and ian5.AlterNameTypeID = @AlterNameTypeID
+                                       and ian5.DateStart      <= dt.TermDate)         
+  left join #ParentDocs    pds #M_NOLOCK_INDEX(XPKParentDocs) 
+         on pds.DocID        = isnull(dm.BasicDocID ,dm.DocID)
+        and not (
+                ddp.TaxAgent      = 0 
+            and ddp.UpFrontMoney  = 0
+            and pds.Source        = 0
+            and @PaymentDocument  = 1
+                )                                     
+#M_FORCEORDER
+
+
+
+select * 
+      ,XMLReportID         = @XMLReportID
+      ,LineNumberFlag      = @LineNumberFlag
+      ,zp                  =','
+      ,ST                  = 'К платежно-расчетному документу '
+      ,BuyINN_KPP          = rtrim(ltrim(BuyINN)) + '/'+ rtrim(ltrim(BuyKPP))
+      ,SelINN_KPP          = rtrim(ltrim(SelINN)) + '/'+ rtrim(ltrim(SellKPP))
+  from #Result_Invoices 
+#M_ISOLAT      
+                
+}   
+
+@Detail@ = SQL{
+
+declare @Director        DSVARFULLNAME40
+       ,@BookKeeper      DSVARFULLNAME40
+       ,@schet           DSIDENTIFIER
+       ,@schet_out       DSIDENTIFIER
+       ,@bill            DSIDENTIFIER
+       ,@act             DSIDENTIFIER
+       ,@FaktID          DSIDENTIFIER
+       ,@RUR             DSIDENTIFIER
+       ,@InvoiceWareID   DSIDENTIFIER
+       ,@FaktID1         DSIDENTIFIER
+       ,@v_delete        DSTINYINT
+       ,@BasisDealTranID DSIDENTIFIER 
+       ,@DocType         DSTINYINT
+       ,@ClientHistory   DSTINYINT
+       ,@TaxRateFlag     DSIDENTIFIER
+       ,@LineNumberFlag  DSTINYINT
+--------------------------------------------------------------------------------------
+#M_FORCEPLAN 
+
+select @ClientHistory  = ClientHistory,
+       @LineNumberFlag = LineNumberFlag
+ from #Params
+       
+select @schet = i.InstrumentID
+  from tConfigParam cp #M_NOLOCK_INDEX(XAK0tConfigParam)            
+      ,tInstrument  i  #M_NOLOCK_INDEX(XPKtInstrument)
+ where cp.SysName     = 'COSTING_FO_ACCOUNT' 
+   and i.InstrumentID = cp.ID
+#M_ISOLAT    
+#M_FORCEORDER
+
+-- исходящий счет
+select @schet_out = i.InstrumentID
+  from tConfigParam cp #M_NOLOCK_INDEX(XAK0tConfigParam)            
+      ,tInstrument  i  #M_NOLOCK_INDEX(XPKtInstrument)
+ where cp.SysName     = 'COSTING_FO_ACCOUNT_OUT' 
+   and i.InstrumentID = cp.ID
+#M_ISOLAT
+#M_FORCEORDER 
+
+select @bill = i.InstrumentID
+  from tConfigParam cp #M_NOLOCK_INDEX(XAK0tConfigParam)            
+      ,tInstrument  i  #M_NOLOCK_INDEX(XPKtInstrument)
+ where cp.SysName     = 'COSTING_FO_BILL' 
+   and i.InstrumentID = cp.ID
+#M_ISOLAT
+#M_FORCEORDER   
+
+select @act = i.InstrumentID
+  from tConfigParam cp #M_NOLOCK_INDEX(XAK0tConfigParam)            
+      ,tInstrument  i  #M_NOLOCK_INDEX(XPKtInstrument)
+ where cp.SysName = 'COSTING_FO_ACT' 
+   and i.InstrumentID = cp.ID
+#M_ISOLAT
+#M_FORCEORDER
+
+select @RUR =ID
+  from tRKO_ConfSet_Sync #M_NOLOCK_INDEX(XPKtRKO_ConfSet_Sync)
+ where SysName = 'FUNDID'
+#M_ISOLAT    
+ 
+select @TaxRateFlag = isnull(ID, 0)  --Показывать расчетную ставку налога в авансовых СФ 
+  from tConfigParam   #M_NOLOCK_INDEX(XAK0tConfigParam) 
+ where SysName = 'INVOICE_TaxRateCalcMethod'
+#M_ISOLAT
+
+delete tDocMark 
+  from tDocMark #M_ROWLOCK_INDEX(XPKtDocMark)
+ where SPID = @@spid 
+   and Type = 1
+   
+insert tDocMark #M_WITH_ROWLOCK (SPID, Type, ID)
+select @@spid
+      ,1
+      ,DocID
+  from #Docs   
+
+
+insert #Result_Products 
+       (
+       FakturaID         
+      ,TovPositID        
+      ,TovarName         
+      ,EdIzm             
+      ,EdIzm_Name        
+      ,Kolvo             
+      ,PriceWoNDS        
+      ,SummaWoNDS        
+      ,PriceBuying       
+      ,FlPriceBuying     
+      ,SStavkaNDS        
+      ,NDS               
+      ,SummaWNDS         
+      ,Akc               
+      ,Director          
+      ,DirectorPost      
+      ,BookKeeper        
+      ,BookKeeperPost    
+      ,ParentDocs        
+      ,GTD               
+      ,STRANA            
+      ,STRANACode        
+      ,FName             
+      ,FNum              
+      ,Correct           
+      ,CorrectAmount     
+      ,CorrectTarif      
+      ,SCorrectTax       
+      ,CorrectSumOutNDS  
+      ,CorrectSum        
+      ,CorrectNDS        
+      ,BCorrectSumOutNDS 
+      ,BCorrectSum       
+      ,BCorrectNDS       
+      ,GCorrectSumOutNDS 
+      ,GCorrectSum       
+      ,GCorrectNDS       
+      ,UpFrontMoney      
+       ) 
+select FakturaID      = dt.DealTransactID
+      ,TovPositID     = war.DealTransactID
+      ,TovarName      = convert(varchar(255), 
+                                case
+                                  when isnull(war.SecurityID,0) = 0
+                                  then ltrim(rtrim(war.Comment))
+                                  else ltrim(rtrim(tov.Name)) + ' ' + ltrim(rtrim(dt.Comment))
+                                end)  
+      ,EdIzm          = case
+                          when isnull(ltrim(rtrim(sec.Number)),'')='' 
+                          then '-'
+                          when  ddp.UpFrontMoney = 1 
+                          then '-'
+                          else sec.Number
+                        end
+      ,EdIzm_Name     = case  
+                          when isnull(ltrim(rtrim(sec.Name)),'')=''  
+                          then '-'
+                          when  ddp.UpFrontMoney = 1 
+                          then '-'
+                          else sec.Name
+                        end  
+      ,Kolvo          = case
+                          when ddp.UpFrontMoney = 1
+                          then 0
+                          else war.Quantity
+                        end  
+      ,PriceWoNDS     = case
+                          when ddp.UpFrontMoney = 1
+                          then 0
+                          else war.Rprice 
+                        end
+      ,SummaWoNDS     = case
+                          when ddp.UpFrontMoney = 1
+                          then 0
+                          else war.Quantity*war.Price - war.VATPay 
+                        end
+      ,PriceBuying    = war.PriceBuying                  
+      ,FlPriceBuying  = case
+                          when war.PriceBuying< war.Quantity*war.Price
+                           and war.PriceBuying>0  
+                          then 1
+                          else 0
+                        end  
+      ,SStavkaNDS     = case 
+                          when (ddp.UpFrontMoney = 1 or ddp.TaxAgent = 1) and @TaxRateFlag = 1
+                          then convert(varchar(20), nds.Qty) + '/1' + convert(varchar(20), nds.Qty) 
+                          else convert(varchar(20), nds.Qty) + '\%'  
+                        end
+      ,NDS            = war.VATPay
+      ,SummaWNDS      = war.Payment
+      ,Akc            = case
+                          when ddp.UpFrontMoney = 1
+                          then '-'
+                          else 'без акциза'
+                        end  
+      ,Director       = Dir.FIOBrief 
+      ,DirectorPost   = Dir.Position
+      ,BookKeeper     = Book.FIOBrief
+      ,BookKeeperPost = Book.Position
+      ,ParentDocs     = dm.ParDocsNum
+      ,GTD            = case 
+                          when ltrim(rtrim(cou.CodeISO)) = '643'
+                          then '-'
+                          else war.GTD
+                        end  
+      ,STRANA         = case 
+                          when ltrim(rtrim(cou.CodeISO)) = '643'
+                          then '-'
+                          else isnull(ltrim(rtrim(cou.Brief)), ' -')
+                        end 
+      ,STRANACode     = case 
+                          when ltrim(rtrim(cou.CodeISO)) = '643'
+                          then '-'
+                          else isnull(ltrim(rtrim(cou.CodeISO)), ' -')
+                        end 
+      ,FName          = case
+                          when war.FundID = @RUR
+                          then ''
+                          else '(' + war.Fund + ')'
+                        end
+      ,FNum           = war.FNumber        
+      ,Correct        = ddp.Correct      
+      ,CorrectAmount    = war.CorrectAmount 
+      ,CorrectTarif     = war.CorrectTarif
+      ,SCorrectTax      = case 
+                            when (ddp.UpFrontMoney = 1 or ddp.TaxAgent = 1) and @TaxRateFlag = 1
+                            then convert(varchar(20), war.CorrectTax) + '/1' + convert(varchar(20), war.CorrectTax) 
+                            else convert(varchar(20), war.CorrectTax) + '\%'  
+                          end       
+      ,CorrectSumOutNDS = war.CorrectSumOutNDS
+      ,CorrectSum       = war.CorrectSum
+      ,CorrectNDS       = war.CorrectNDS
+      
+      ,BCorrectSumOutNDS = case
+                             when (war.CorrectSumOutNDS -  (war.Quantity*war.Price - war.VATPay))>0
+                             then 0
+                             else abs(war.CorrectSumOutNDS -  (war.Quantity*war.Price - war.VATPay))
+                           end    
+      ,BCorrectSum       = case
+                             when (war.CorrectSum  - war.Payment )>0
+                             then 0
+                             else abs(war.CorrectSum  - war.Payment  ) 
+                           end    
+                             
+      ,BCorrectNDS       = case
+                             when (war.CorrectNDS  - war.VATPay)>0  
+                             then 0
+                             else abs(war.CorrectNDS  - war.VATPay)
+                           end    
+       
+      ,GCorrectSumOutNDS = case
+                             when (war.CorrectSumOutNDS -  (war.Quantity*war.Price - war.VATPay))>0
+                             then abs(war.CorrectSumOutNDS -  (war.Quantity*war.Price - war.VATPay))
+                             else 0
+                           end
+      ,GCorrectSum       = case
+                             when (war.CorrectSum  - war.Payment )>0
+                             then abs(war.CorrectSum  - war.Payment  )
+                             else 0
+                           end
+      ,GCorrectNDS       = case
+                             when (war.CorrectNDS - war.VATPay)>0
+                             then abs(war.CorrectNDS - war.VATPay)
+                             else 0
+                           end
+      ,UpFrontMoney        = ddp.UpFrontMoney
+
+  from #Docs              dm
+ inner join #DocsDopParams ddp  #M_NOLOCK_INDEX(XPKDocsDopParams)         
+         on ddp.DocID     = dm.DocID
+ inner join tDealTransact dt   #M_NOLOCK_INDEX(XPKtDealTransact)
+         on dt.DealTransactID  = dm.DocID
+        and dt.TransactType    = 18
+ inner join tDocMark dminstr #M_NOLOCK_INDEX(XPKtDocMark)
+         on dminstr.SPID    = @@spid
+        and dminstr.Type    = 3
+        and dminstr.ID      = dt.InstrumentID 
+ inner join #ware         war  #M_NOLOCK_INDEX(XIE1ware)
+         on war.DealTransactID = dt.DealTransactID 
+  left join tSecInvoice  tov   #M_NOLOCK_INDEX(XPKtSecInvoice)
+         on tov.SecInvoiceID = war.SecurityID
+  left join tSecurity  sec  #M_NOLOCK_INDEX(XPKtSecurity)
+         on sec.SecurityID = tov.MeasureID
+                      
+  left join pRKO_Rep_Reuters      rti  #M_NOLOCK_INDEX(XPKpRKO_Rep_Reuters)
+         on rti.ReutersID      = case 
+                                   when dt.Direction = 1 
+                                   then dt.ResourcePsvID 
+                                   else dt.ResSecondPsvID 
+                                 end
+        and rti.OnDate = case when @ClientHistory = 1 then dt.TermDate else '19000101' end                            
+        and rti.SPID   = @@spid                           
+  left join pRKO_Rep_Reuters      rti2 #M_NOLOCK_INDEX(XPKpRKO_Rep_Reuters)
+         on rti2.ReutersID     = case 
+                                   when dt.Direction = 0 
+                                   then dt.ResourcePsvID 
+                                   else dt.ResSecondPsvID 
+                                 end 
+        and rti2.OnDate = case when @ClientHistory = 1 then dt.TermDate else '19000101' end                            
+        and rti2.SPID   = @@spid                           
+  left join tVATRate      nds  #M_NOLOCK_INDEX(XPKtVATRate) // ставки НДС 
+         on nds.VATRateID      = war.VATRateID
+  left join tUser         Dir  #M_NOLOCK_INDEX(XPKtUser)
+         on Dir.UserID         = dt.FundPsvID
+  left join tUser         Book #M_NOLOCK_INDEX(XPKtUser)
+         on Book.UserID        = dt.Priority
+  left join tCountry      cou  #M_NOLOCK_INDEX(XPKtCountry)
+         on cou.CountryID      = war.CountryID
+#M_FORCEORDER 
+
+select *
+      ,ClientHistory       = @ClientHistory                    
+
+ from #Result_Products
+#M_ISOLAT
+
+} 
+                                                                            
+[Mark]
+                                                                      
+@MARK@=Mark{@FakturaID........@,INST}                                       
+                                                                            
+[FIELD]                                                                     
+                                                                            
+@PS@=PrinterSetup{LANDSCAPE,7,7, , ,Courier New Cyr DS2,8, ,CYRILLIC}        
+                                                                            
+@TaxAgent@=FIELD{TaxAgent,@n1,NONE}                                                                            
+@FakturaID........@=Field{FakturaID,@n-_19.3}
+@Number@=Field{Number,@s25t}
+@Date....@=Field{Date,@d6}
+
+@Fund@=FIELD{Fund,@s48}
+@ChangeNum@=Field{ChangeNum,@n5Bt,NONE}  
+@ChangeDate@=Field{ChangeDate,@d6b}
+
+@InfactNum@=Field{InfactNum,@s5t}          
+@InfactDate@=Field{InfactDate,@d6b}              
+@InfactChangeNum@=Field{InfactChangeNum,@n5Bt}    
+@InfactChangeDate@=Field{InfactChangeDate,@d6b}       
+
+@Seller.........................................................................................................................................@=Field{Seller,@s75,WRAP}
+@SelAddress.....................................................................................................................................@=Field{SelAddress,@s75,WRAP}
+
+@Buyer..........................................................................................................................................@=Field{Buyer,@s75,WRAP}
+@BuyAddress.....................................................................................................................................@=Field{BuyAddress,@s75,WRAP}
+
+@TovPositID.......@=Field{TovPositID,@n-_19.3}
+@TovarName............@=Field{SuppresBreakLine(TovarName),@s23,WRAP}
+
+@EdI@=Field{EdIzm,@s5^,WRAP}
+@EdIzmN@=Field{EdIzm_Name,@s8^,WRAP}
+
+
+@Kolvo...@=Field{Kolvo,@n-_10.2B}
+@PriceWNDS.......@=Field{PriceWoNDS,@n-18.2B}
+@SummaWoNDS......@=Field{SummaWoNDS,@n-18.2B}
+
+@StaN@=Field{SStavkaNDS,@s6^}
+
+@PriceBuying.....@=Field{PriceBuying,@n-18.2B}
+@FlPriceBuying@=FIELD{FlPriceBuying,@n1,NONE}
+
+@PriceWNDS......2@=Field{PriceWoNDS-PriceBuying,@n-18.2B}  
+@SummaWoNDS.....2@=Field{SummaWoNDS-PriceBuying,@n-18.2B}  
+@SummaWNDS......2@=Field{SummaWNDS-PriceBuying,@n-18.2B}  
+
+@NDS..........@=Field{NDS,@n-15.2B}
+@SummaWNDS.......@=Field{SummaWNDS,@n-18.2B}
+
+@Akc.@=FIELD{Akc,@s6,WRAP}
+@STRANA@=Field{STRANA,@s8^,WRAP}
+@CC..@=Field{STRANACode,@s4^,WRAP}  
+
+@DirectorPost...........@=Field{DirectorPost  ,@s25,WRAP}
+@Director...............@=Field{''+Director+'',@s25^,WRAP}
+@BookKeeperPost.........@=Field{BookKeeperPost ,@s25,WRAP}
+@BookKeeper.............@=Field{''+BookKeeper+'',@s25^,WRAP}
+@Gruzootpravitel............................................................................................................@=Field{Gruzootpravitel + GruzOtprAddress,@s75,WRAP}
+@Gruzopoluchatel............................................................................................................@=Field{Gruzopoluchatel + GruzPolAddress,@s75,WRAP}
+@GTD.......@=Field{GTD,@s12,wrap}
+@Продаве@=Field{'Продавец',@s9}
+@Адр@=Field{'Адрес',@s5}
+@Покупател@=Field{'Покупатель',@s11}
+@рузоотправитель.и.его.адре@ = Field{'Грузоотправитель и его адрес',@s28} 
+@рузополучатель.и.его.адре@ = Field{'Грузополучатель и его адрес',@s27} 
+
+@ParDocsNum.............................................................................................................@=Field{ParDocsNum,@s75,SUMSMARTWRAP}
+@ST.............................@=Field{ST,@s33}
+@FName........@ = Field{FName,@s15^}
+@FNum@ = Field{FNum,@s15t}
+
+@QtyWP...............................................@ = TxtSumField{abs(@SummaWNDS.......@),@s54,WRAP,@FNum@}
+@сего_к_оплате@ = Field{'Всего к оплате:',@s15}
+
+@Correct@=FIELD{Correct,@n1,NONE}
+
+
+@Адо изменения.....@=Field{'А (до изменения)     ',@s20}  
+@Бпосле изменения..@=Field{'Б (после изменения)',@s20}  
+@Вувеличение.......@=Field{'В (увеличение)'     ,@s20}    
+@Гуменьшени........@=Field{'Г (уменьшение)'     ,@s20}     
+@x@=FIELD{'X',@s3}
+
+
+@CorAm...@=Field{CorrectAmount,@n-_10.2B}      
+@CorrectTarif....@=Field{CorrectTarif,@n-18.2B}      
+
+@CTax@=Field{SCorrectTax,@s6^}         
+
+@CorrectSumOutNDS@=Field{CorrectSumOutNDS,@n-18.2B}  
+@CorrectSum......@=Field{CorrectSum,@n-18.2B}        
+@CorrectNDS...@=Field{CorrectNDS,@n-15.2B}       
+@BCorrecSumOutNDS@=Field{BCorrectSumOutNDS,@n-18.2B} 
+@BCorrectSum.....@=Field{BCorrectSum,@n-18.2B}       
+@BCorrectNDS..@=Field{BCorrectNDS,@n-15.2B}      
+@GCorrecSumOutNDS@=Field{GCorrectSumOutNDS,@n-18.2B} 
+@GCorrectSum.....@=Field{GCorrectSum,@n-18.2B}       
+@GCorrectNDS..@=Field{GCorrectNDS,@n-15.2B}      
+@S@=EXPRFIELD{"-",@s1^} 
+@zp@ = Field{zp, @s1}
+
+@NumberDate@  = ExprField{ "@Number@" + " от " + "@Date....@" + "@zp@", @s59} 
+@NumberDate0@ = ExprField{"СЧЕТ-ФАКТУРА N " + "@Number@" + " от " + "@Date....@", @s59} 
+
+@InfactNum1@ = ExprField{("@InfactNum@" = "")!("-"):("@InfactNum@"),@s50t}
+@InfactNum2@ = ExprField{("@InfactNum@" = "")!("-"):("@InfactDate@"),@s50t}
+
+
+@Num1@ = ExprField{(@ChangeNum@ = 0)!("-"):("@ChangeNum@"),@s50t}
+@Num2@ = ExprField{(@ChangeNum@ = 0)!("-"):("@ChangeDate@"),@s50t}
+@NumS@ = ExprField{"@Num1@" + " от " + "@Num2@", @s58}
+
+@InfactChangeNum1@ = ExprField{(@InfactChangeNum@ = 0)!("-"):("@InfactChangeNum@"),@s50t}
+@InfactChangeNum2@ = ExprField{(@InfactChangeNum@ = 0)!("-"):("@InfactChangeDate@"),@s50t}
+
+@InfactNumS@ = ExprField{"@InfactNum1@" + " от " + "@InfactNum2@" + " с  учетом исправления N " + "@InfactChangeNum1@" + " от " + "@InfactChangeNum2@", @s70}
+
+@UpFrontMoney@=FIELD{UpFrontMoney,@n1,NONE}
+@RF_TXTFormat@ =ReportFilter{%Format!=0}
+@RF_XMLFormat@ =ReportFilter{%Format!=1&XMLReportID<>0,@Main@}
+
+@RunXMLReport@ = OnReportComplete{ReportExec(XMLReportID),@s50}
+@PV@= PreviewForm{True}
+
+@SelINN_KPP@ = ExprField{SelINN_KPP, @s59}
+@BuyINN_KPP@ = ExprField{BuyINN_KPP, @s59}
+
+@DirectorPostP..........@=FIELD{'Руководитель организации или иное уполномоченное лицо',@s25,WRAP}
+@BookKeeperPostP........@=FIELD{'Главный бухгалтер или иное уполномоченное лицо',@s25,WRAP}                 
+@BookKeeperPostP...@=FIELD{'Главный бухгалтер или иное уполномоченное лицо',@s20,WRAP}                 
+@Reason............@=FIELD{'на основании доверенности/приказа',@s20,WRAP}
+
+
+@UpFrontMoney@  =FIELD{UpFrontMoney,@n1,NONE}
+@LineNumberFlag@=FIELD{LineNumberFlag,@n1}
+@F1@ = Field{'(1)', @s3}
+@F2@ = Field{'(2)', @s3}
+@F3@ = Field{'(3)', @s3}
+@F4@ = Field{'(4)', @s3}
+@F5@ = Field{'(5)', @s3}
+@F6@ = Field{'(6)', @s3}
+@F7@ = Field{'(7)', @s3}
+
+@F1a@ = Field{'(1а)', @s4}
+@F1b@ = Field{'(1б)', @s4}
+@F2a@ = Field{'(2а)', @s4}
+@F2b@ = Field{'(2б)', @s4}
+@F3a@ = Field{'(3а)', @s4}
+@F3b@ = Field{'(3б)', @s4}
+@F6a@ = Field{'(6а)', @s4}
+@F6b@ = Field{'(6б)', @s4}
+
+@FileName@=Field{FileName,@s255}
+@FileCode@ = AnsiToOem{} 
+
+
+
+&&
+#@PS@
+#@DpTable@
+#@Table@
+#@DocsDopParams@
+#@GetXMLReportID@
+#@Main@
+$T
+$
+&
+#@RF_XMLFormat@
+#@PV@
+#@Detail@
+#@GetXMLReportID@
+#@RunXMLReport@
+$T
+$
+&
+#@RF_TXTFormat@
+#@Main@
+#@MARK@
+$@FakturaID........@{TRUE}
+$T
+$    
+#IF @Correct@ = 0
+
+
+                                                                                                                                   Приложение N 1               
+                                                                                                                                   к постановлению Правительства
+                                                                                                                                   Российской Федерации         
+                                                                                                                                   от 26 декабря 2011 г. N 1137 
+                                       @NumberDate0@             #IF @LineNumberFlag@ = 1  #THEN @F1@ #ENDIF
+                                       ИСПРАВЛЕНИЕ N @NumS@#IF @LineNumberFlag@ = 1  #THEN @F1a@ #ENDIF
+                                      
+#IF @TaxAgent@ = 0
+  @Продаве@                         @Seller.........................................................................................................................................@#IF @LineNumberFlag@ = 1 #THEN @F2@ #ENDIF
+  @Адр@                             @SelAddress.....................................................................................................................................@#IF @LineNumberFlag@ = 1 #THEN @F2a@ #ENDIF
+  ИНН/КПП продавца                  @SelINN_KPP@                #IF @LineNumberFlag@ = 1 #THEN @F2b@ #ENDIF
+#ELSE
+  @Продаве@                         @Buyer..........................................................................................................................................@#IF @LineNumberFlag@ = 1 #THEN @F2@ #ENDIF
+  @Адр@                             @BuyAddress.....................................................................................................................................@#IF @LineNumberFlag@ = 1 #THEN @F2a@ #ENDIF 
+  ИНН/КПП продавца                  @BuyINN_KPP@                #IF @LineNumberFlag@ = 1 #THEN @F2b@ #ENDIF
+#ENDIF  
+  @рузоотправитель.и.его.адре@      @Gruzootpravitel............................................................................................................@#IF @LineNumberFlag@ = 1 #THEN @F3@ #ENDIF
+  @рузополучатель.и.его.адре@       @Gruzopoluchatel............................................................................................................@#IF @LineNumberFlag@ = 1 #THEN @F4@ #ENDIF
+  @ST.............................@ @ParDocsNum.............................................................................................................@#IF @LineNumberFlag@ = 1 #THEN @F5@ #ENDIF
+#IF @TaxAgent@ = 0                                                                                                                                          
+  @Покупател@                       @Buyer..........................................................................................................................................@#IF @LineNumberFlag@ = 1 #THEN @F6@ #ENDIF
+  @Адр@                             @BuyAddress.....................................................................................................................................@#IF @LineNumberFlag@ = 1 #THEN @F6a@ #ENDIF  
+  ИНН/КПП покупателя                @BuyINN_KPP@                #IF @LineNumberFlag@ = 1 #THEN @F6b@ #ENDIF
+#ELSE
+  @Покупател@                       @Seller.........................................................................................................................................@#IF @LineNumberFlag@ = 1 #THEN @F6@ #ENDIF
+  @Адр@                             @SelAddress.....................................................................................................................................@#IF @LineNumberFlag@ = 1 #THEN @F6a@ #ENDIF
+  ИНН/КПП покупателя                @SelINN_KPP@                #IF @LineNumberFlag@ = 1 #THEN @F6b@ #ENDIF
+#ENDIF  
+  @Fund@                                                             #IF @LineNumberFlag@ = 1 #THEN @F7@ #ENDIF
+#ELSE  
+
+                                                                                                                                   Приложение N 2               
+                                                                                                                                   к постановлению Правительства
+                                                                                                                                   Российской Федерации         
+                                                                                                                                   от 26 декабря 2011 г. N 1137 
+  КОРРЕКТИРОВОЧНЫЙ СЧЕТ-ФАКТУРА N @NumberDate0@                  #IF @LineNumberFlag@ = 1 #THEN @F1@ #ENDIF
+  ИСПРАВЛЕНИЕ КОРРЕКТИРОВОЧНОГО СЧЕТА-ФАКТУРЫ  N @NumS@   #IF @LineNumberFlag@ = 1 #THEN @F1a@ #ENDIF
+  к  СЧЕТУ-ФАКТУРЕ  N  @InfactNumS@                  #IF @LineNumberFlag@ = 1 #THEN @F1b@ #ENDIF
+                                      
+#IF @TaxAgent@ = 0
+  @Продаве@                         @Seller.........................................................................................................................................@#IF @LineNumberFlag@ = 1 #THEN @F2@ #ENDIF
+  @Адр@                             @SelAddress.....................................................................................................................................@#IF @LineNumberFlag@ = 1 #THEN @F2a@ #ENDIF
+  ИНН/КПП продавца                  @SelINN_KPP@                #IF @LineNumberFlag@ = 1 #THEN @F2b@ #ENDIF
+#ELSE
+  @Продаве@                         @Buyer..........................................................................................................................................@#IF @LineNumberFlag@ = 1 #THEN @F2@ #ENDIF
+  @Адр@                             @BuyAddress.....................................................................................................................................@#IF @LineNumberFlag@ = 1 #THEN @F2a@ #ENDIF  
+  ИНН/КПП продавца                  @BuyINN_KPP@                #IF @LineNumberFlag@ = 1 #THEN @F2b@ #ENDIF
+#ENDIF  
+#IF @Correct@ = 0  
+  @рузоотправитель.и.его.адре@      @Gruzootpravitel............................................................................................................@
+  @рузополучатель.и.его.адре@       @Gruzopoluchatel............................................................................................................@
+#ENDIF  
+#IF @TaxAgent@ = 0  
+  @Покупател@                       @Buyer..........................................................................................................................................@#IF @LineNumberFlag@ = 1 #THEN @F3@ #ENDIF
+  @Адр@                             @BuyAddress.....................................................................................................................................@#IF @LineNumberFlag@ = 1 #THEN @F3a@ #ENDIF  
+  ИНН/КПП покупателя                @BuyINN_KPP@                #IF @LineNumberFlag@ = 1 #THEN @F3b@ #ENDIF
+#ELSE
+  @Покупател@                       @Seller.........................................................................................................................................@#IF @LineNumberFlag@ = 1 #THEN @F3@ #ENDIF
+  @Адр@                             @SelAddress.....................................................................................................................................@#IF @LineNumberFlag@ = 1 #THEN @F3a@ #ENDIF
+  ИНН/КПП покупателя                @SelINN_KPP@                #IF @LineNumberFlag@ = 1 #THEN @F3b@ #ENDIF
+#ENDIF  
+  @Fund@                                                             #IF @LineNumberFlag@ = 1 #THEN @F4@ #ENDIF
+#ENDIF
+$    
+&
+#@RF_TXTFormat@
+#@Detail@  
+#@MARK@
+$@FakturaID........@
+#IF @Correct@ = 0  
+                                                                                                                                                                       
+                                                                                                                                                                       
+Љ””””””””””””””””””””””””’””””””””””””””’””””””””””’””””””””””””””””””’””””””””””””””””””’””””””’””””””’”””””””””””””””’””””””””””””””””””’”””””””””””””””’””””””””””””Ї
+Ј Наименование товара    ЈЕдиница       Ј   Коли-  Ј Цена (тариф) за  ЈСтоимость товаров ЈВ том ЈНало- Ј Сумма налога, ЈСтоимость товаров Ј   Страна      Ј Номер      Ј
+Ј(описание выполненных   Јизмерения     Ј  чество  Јединицу измерения Ј(работ,услуг),иму-Јчисле Јговая Јпредъявляемая  Ј(работ,услуг),иму-Јпроисхождения  Јтаможенной  Ј
+Јработ, оказанных услуг),“”””””’””””””””¤ (объем)  Ј                  Јщественных прав,  Јсумма ЈставкаЈ  покупателю   Јщественных прав,  Ј   товара      Јдекларации  Ј
+Јимущественного права    Ј код ЈусловноеЈ          Ј                  Јбез налога - всегоЈакцизаЈ      Ј               Ј   с  налогом -   “””””””’””””””””¤            Ј
+Ј                        Ј     Јобозна -Ј          Ј                  Ј                  Ј      Ј      Ј               Ј     всего        Јцифро-Јкраткое Ј            Ј
+Ј                        Ј     Јчение   Ј          Ј                  Ј                  Ј      Ј      Ј               Ј                  Јвой   Јнаиме - Ј            Ј
+Ј                        Ј     Ј(нацио- Ј          Ј                  Ј                  Ј      Ј      Ј               Ј                  Јкод   Јнование Ј            Ј 
+Ј                        Ј     Јнальное)Ј          Ј                  Ј                  Ј      Ј      Ј               Ј                  Ј      Ј        Ј            Ј 
+“””””””””””””””””””””””””•”””””•””””””””•””””””””””•””””””””””””””””””•””””””””””””””””””•””””””•””””””•”””””””””””””””•””””””””””””””””””•””””””•””””””””•””””””””””””¤
+Ј           1            Ј  2  Ј  2а    Ј      3   Ј        4         Ј         5        Ј   6  Ј   7  Ј        8      Ј         9        Ј   10 Ј  10a   Ј     11     Ј
+#ELSE                                                                                                                                                     
+                                                                                                                                                                       
+                                                                                                                                                                       
+Љ””””””””””””””””””””””””’””””””””””””””””””””’””””””””””””””’””””””””””’””””””””””””””””””’””””””””””””””””””’””””””’””””””’”””””””””””””””’””””””””””””””””””Ї 
+Ј Наименование товара    ЈПоказатели в связи сЈЕдиница       Ј   Коли-  Ј Цена (тариф) за  ЈСтоимость товаров ЈВ том ЈНало- Ј Сумма налога  ЈСтоимость товаров Ј 
+Ј(описание выполненных   Јизменением стоимостиЈизмерения     Ј  чество  Јединицу измерения Ј(работ,услуг),иму-Јчисле Јговая Ј               Ј(работ,услуг),иму-Ј 
+Јработ, оказанных услуг),Јотгруженных товаров “”””””’””””””””¤ (объем)  Ј                  Јщественных прав,  Јсумма ЈставкаЈ               Јщественных прав,  Ј 
+Јимущественного права    Ј(выполненных работ, Ј код ЈусловноеЈ          Ј                  Ј    без налога -  ЈакцизаЈ      Ј               Јс учетом налога - Ј 
+Ј                        Јоказанных услуг),   Ј     Јобозна -Ј          Ј                  Ј       всего      Ј      Ј      Ј               Ј       всего      Ј 
+Ј                        Јпереданных          Ј     Јчение   Ј          Ј                  Ј                  Ј      Ј      Ј               Ј                  Ј 
+Ј                        Јимущественных прав  Ј     Ј(нацио- Ј          Ј                  Ј                  Ј      Ј      Ј               Ј                  Ј
+Ј                        Ј                    Ј     Јнальное)Ј          Ј                  Ј                  Ј      Ј      Ј               Ј                  Ј
+“””””””””””””””””””””””””•””””””””””””””””””””•”””””•””””””””•””””””””””•””””””””””””””””””•””””””””””””””””””•””””””•””””””•”””””””””””””””•””””””””””””””””””¤ 
+Ј           1            Ј       1a           Ј  2  Ј  2а    Ј      3   Ј        4         Ј         5        Ј   6  Ј   7  Ј        8      Ј         9        Ј
+#ENDIF
+$T
+#IF @Correct@ = 0
+“””””””””””””””””””””””””•”””””•””””””””•””””””””””•””””””””””””””””””•””””””””””””””””””•””””””•””””””•”””””””””””””””•””””””””””””””””””•””””””•””””””””•””””””””””””¤
+#IF @UpFrontMoney@ = 0
+#IF @FlPriceBuying@ = 0
+Ј@TovarName............@ Ј@EdI@Ј@EdIzmN@Ј#IF ("@EdI@"="-")&("@EdIzmN@"="-") #THEN       @S@   #ELSE @Kolvo...@#ENDIF Ј#IF ("@EdI@"="-")&("@EdIzmN@"="-") #THEN        @S@          #ELSE @PriceWNDS.......@#ENDIF Ј@SummaWoNDS......@Ј@Akc.@Ј@StaN@Ј@NDS..........@Ј@SummaWNDS.......@Ј @CC..@ Ј@STRANA@Ј#IF ("@CC..@"="-")&("@STRANA@"="-") #THEN    @S@        #ELSE @GTD.......@#ENDIF Ј
+#ELSE
+Ј@TovarName............@ Ј@EdI@Ј@EdIzmN@Ј#IF ("@EdI@"="-")&("@EdIzmN@"="-") #THEN       @S@   #ELSE @Kolvo...@#ENDIF Ј#IF ("@EdI@"="-")&("@EdIzmN@"="-") #THEN       @S@   #ELSE @PriceWNDS.......@#ENDIF Ј@SummaWoNDS......@Ј@Akc.@Ј      Ј               Ј@SummaWNDS.......@Ј@CC..@Ј@STRANA@Ј#IF ("@CC..@"="-")&("@STRANA@"="-") #THEN @S@      #ELSE @GTD.......@#ENDIF Ј
+Ј@TovarName............@ Ј@EdI@Ј@EdIzmN@Ј#IF ("@EdI@"="-")&("@EdIzmN@"="-") #THEN       @S@   #ELSE @Kolvo...@#ENDIF Ј#IF ("@EdI@"="-")&("@EdIzmN@"="-") #THEN       @S@   #ELSE @PriceWNDS......2@#ENDIF Ј@SummaWoNDS.....2@Ј@Akc.@Ј@StaN@Ј@NDS..........@Ј@SummaWNDS......2@Ј@CC..@Ј@STRANA@Ј#IF ("@CC..@"="-")&("@STRANA@"="-") #THEN @S@      #ELSE @GTD.......@#ENDIF Ј
+#ENDIF
+#ELSE
+Ј@TovarName............@ Ј  @S@  Ј   @S@    Ј    @S@     Ј         @S@        Ј        @S@         Ј  @S@   Ј@StaN@Ј@NDS..........@Ј@SummaWNDS.......@Ј   @S@  Ј    @S@   Ј      @S@     Ј
+#ENDIF
+#ELSE
+“””””””””””””””””””””””””•””””””””””””””””””””•”””””•””””””””•””””””””””•””””””””””””””””””•””””””””””””””””””•””””””•””””””•”””””””””””””””•””””””””””””””””””¤
+#IF @UpFrontMoney@ = 0
+Ј@TovarName............@ Ј@Адо изменения.....@Ј@EdI@Ј@EdIzmN@Ј@CorAm...@Ј@CorrectTarif....@Ј@CorrectSumOutNDS@Ј@Akc.@Ј@CTax@Ј@CorrectNDS...@Ј@CorrectSum......@Ј
+Ј@TovarName............@ Ј@Бпосле изменения..@Ј@EdI@Ј@EdIzmN@Ј@Kolvo...@Ј@PriceWNDS.......@Ј@SummaWoNDS......@Ј@Akc.@Ј@StaN@Ј@NDS..........@Ј@SummaWNDS.......@Ј
+Ј                        Ј@Вувеличение.......@Ј @x@ Ј   @x@  Ј    @x@   Ј       @x@        Ј@BCorrecSumOutNDS@Ј@Akc.@Ј @x@  Ј@BCorrectNDS..@Ј@BCorrectSum.....@Ј
+Ј                        Ј@Гуменьшени........@Ј @x@ Ј   @x@  Ј    @x@   Ј       @x@        Ј@GCorrecSumOutNDS@Ј@Akc.@Ј @x@  Ј@GCorrectNDS..@Ј@GCorrectSum.....@Ј
+#ELSE
+Ј@TovarName............@ Ј@Адо изменения.....@Ј  @S@  Ј   @S@    Ј    @S@     Ј        @S@         Ј         @S@        Ј   @S@  Ј@CTax@Ј@CorrectNDS...@Ј@CorrectSum......@Ј
+Ј@TovarName............@ Ј@Бпосле изменения..@Ј  @S@  Ј   @S@    Ј    @S@     Ј        @S@         Ј         @S@        Ј   @S@  Ј@StaN@Ј@NDS..........@Ј@SummaWNDS.......@Ј
+Ј                        Ј@Вувеличение.......@Ј @x@ Ј   @x@  Ј    @x@   Ј       @x@        Ј         @S@        Ј   @S@  Ј @x@  Ј@BCorrectNDS..@Ј@BCorrectSum.....@Ј
+Ј                        Ј@Гуменьшени........@Ј @x@ Ј   @x@  Ј    @x@   Ј       @x@        Ј         @S@        Ј   @S@  Ј @x@  Ј@GCorrectNDS..@Ј@GCorrectSum.....@Ј
+#ENDIF
+#ENDIF                                                                                      
+$
+#IF @Correct@ = 0
+“””””””””””””””””””””””””‘”””””‘””””””””‘””””””””””‘””””””””””””””””””•””””””””””””””””””•””””””‘””””””•”””””””””””””””•””””””””””””””””””•””””””‘””””””””‘””””””””””””‰
+Ј@сего_к_оплате@                                                      Ј@SummaWoNDS......@Ј     @x@     Ј@NDS..........@Ј@SummaWNDS.......@Ј 
+ђ”””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””‘””””””””””””””””””‘”””””””””””””‘”””””””””””””””‘””””””””””””””””””‰ 
+#ELSE
+#IF @UpFrontMoney@ = 0
+“””””””””””””””””””””””””‘””””””””””””””””””””‘”””””‘””””””””‘””””””””””‘””””””””””””””””””•””””””””””””””””””•””””””‘””””””•”””””””””””””””•””””””””””””””””””¤
+ЈВсего увеличение (сумма строк В)                                                          Ј@BCorrecSumOutNDS@Ј     @x@     Ј@BCorrectNDS..@Ј@BCorrectSum.....@Ј
+“””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””•””””””””””””””””””•”””””””””””””•”””””””””””””””•””””””””””””””””””¤
+ЈВсего уменьшение (сумма строк Г)                                                          Ј@GCorrecSumOutNDS@Ј     @x@     Ј@GCorrectNDS..@Ј@GCorrectSum.....@Ј
+ђ””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””‘””””””””””””””””””‘”””””””””””””‘”””””””””””””””‘””””””””””””””””””‰
+#ELSE
+“””””””””””””””””””””””””‘””””””””””””””””””””‘”””””‘””””””””‘””””””””””‘””””””””””””””””””•””””””””””””””””””•””””””‘””””””•”””””””””””””””•””””””””””””””””””¤
+ЈВсего увеличение (сумма строк В)                                                          Ј         @S@        Ј     @x@     Ј@BCorrectNDS..@Ј@BCorrectSum.....@Ј
+“””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””•””””””””””””””””””•”””””””””””””•”””””””””””””””•””””””””””””””””””¤
+ЈВсего уменьшение (сумма строк Г)                                                          Ј         @S@        Ј     @x@     Ј@GCorrectNDS..@Ј@GCorrectSum.....@Ј
+ђ””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””‘””””””””””””””””””‘”””””””””””””‘”””””””””””””””‘””””””””””””””””””‰
+#ENDIF
+#ENDIF
+
+@DirectorPostP..........@             @Director...............@ @Reason............@ @BookKeeperPostP...@              @BookKeeper.............@ @Reason............@
+                          ””””””””    ””””””””””””””””””””””””                                            ”””””””””    ””””””””””””””””””””””””
+                          (Подпись)          (Ф.И.О.)                                                     (Подпись)          (Ф.И.О.)
+                                                                                  
+                                                                                  
+
+
+ 
+ Индивидуальный предприниматель  ________  _________________________    ________________________________________________________________________________________ 
+                                 (Подпись)          (Ф.И.О.)            (реквизиты свидетельства о государственной регистрации индивидуального предпринимателя)
+                                                                        
+                                                                        
+                                                    
+
+                        
+$  
+
+&&
+&&
+%Format!=Param{Режим построения, dtBinary, 0, , , , , , выгрузка в txt; выгрузка в xml;, 1, 1}
+%InstrumentID!=Param{ФО, dtString, 40, TInstrument_T, tInstrument.Brief, InstrumentID, Финансовые операции, tInstrument,TableName  = TCostDoc_T  , 0, 0}
+%RepDate!=Param{Дата отбора, dtDatetime, 0, , , , , , , 0, 0}
+

@@ -1,0 +1,484 @@
+[SQL]
+@SQL@=SQL{   
+
+-- Отчет по сделкам МБК. Задача P068.T0706 SD581525 WO9828
+-- Автор: Щеголев С.А.
+-- Дата создания: 04.02.2010
+
+-- Автор: Маслюхин А.Ф.
+-- Дата изменения: 08.09.2016
+-- Переход на версию 8.1
+
+declare @DateStart    DSOPERDAY,
+        @DateEnd      DSOPERDAY,
+        @CntParamsID  DSIDENTIFIER,
+        @AccType      DSINT_KEY,
+        @ErrMsg       DSCOMMENT
+        
+select @DateStart = isnull(%Date1!, '19000101'),
+       @DateEnd   = isnull(%Date2!, '19000101')
+       
+create table #Result
+       (     
+       ResourceID         DSIDENTIFIER,        
+       BankName           DSCOMMENT,        --Наименование банка-контрагента
+       DealNumber         DSACCNUMVAR,      --Номер договора
+       DateStart          DSOPERDAY,        --Дата начала договора 
+       DateEnd            DSOPERDAY,        --Дата окончания договора
+       Qty                DSMONEY,          --Сумма кредита
+       Fund               DSBRIEFVAR,       --Валюта
+       Prcnt              DSBRIEFVAR,       --Процентная ставка
+       AccrualBase        DSBRIEFVAR,       --База начисления %
+       MainRes            DSACCNUMVAR,      --Счет основного долга
+       PrcntRes           DSACCNUMVAR null, --Счет процентов
+       QualityClass       DSINT_KEY null,   --Категория качества
+       ReserveRatio       DSFLOAT null,     --Норма резервирования
+       MainReserveRes     DSACCNUMVAR null, --Счет резерва по ОД
+       PrcntReserveRes    DSACCNUMVAR null, --Счет резерва по %
+       PrcntResCnt        DSINT_KEY,
+       MainReserveResCnt  DSINT_KEY,
+       PrcntReserveResCnt DSINT_KEY,
+       SortField          DSINT_KEY null
+       )
+
+select @CntParamsID = CntParamsID 
+  from tCntParams #M_NOLOCK_INDEX(XAK1tCntParams)
+where SysName = 'Resource118'
+#M_ISOLAT
+
+select @AccType = PropVal
+  from tProperty #M_NOLOCK_INDEX(XPKtProperty)         
+ where PropType = 59
+   and Brief = 'Связанные'
+#M_ISOLAT
+
+delete pErrorLine
+ where SPID = @@spid
+
+insert #Result
+       (
+       ResourceID,
+       BankName,
+       DealNumber,
+       DateStart,
+       DateEnd,
+       Qty,
+       Fund,
+       Prcnt,
+       AccrualBase,
+       MainRes       
+       )
+select r.ResourceID,
+       i.Name,
+       isnull(ltrim(de.DealNumber), ''), 
+       isnull(al.OnDate, '19000101'),
+       isnull(al.DateLast, '19000101'),
+       isnull(de.Qty, 0),
+       f.Brief,
+       case
+         when charindex(';', de.Comment) > 0
+         then isnull(substring(de.Comment, 1, charindex(';', de.Comment) - 1), '')         
+         else isnull(str_replace(str_replace(de.Comment, char(10), ' '), char(13), ''), '')
+       end,
+       case
+         when charindex(';', de.Comment) > 0
+         then isnull(substring(de.Comment, charindex(';', de.Comment) + 1, len(de.Comment)), '')
+         else ''
+       end,
+       r.Brief
+  from tResource r #M_NOLOCK_INDEX(XAK1tResource)
+ inner join tInstitution i #M_NOLOCK_INDEX(XPKtInstitution) on i.InstitutionID = r.InstOwnerID
+ inner join tCurrency f #M_NOLOCK_INDEX(XPKtCurrency) on f.CurrencyID = r.FundID
+  left join tMMAccountLink al #M_NOLOCK_INDEX(XIE3tMMAccountLink) on al.ResourceID = r.ResourceID and al.TypeAccLinkID = 0
+  left join tDealAccLinkExt de #M_NOLOCK_INDEX(XPKtDealAccLinkExt) on de.AccountLinkID = al.AccountLinkID
+ where r.Brief like '31[2349]\%'
+   and r.BalanceID = 2140
+   and r.DateStart <= @DateEnd
+   and (r.DateEnd >= @DateStart or r.DateEnd = '19000101')
+union all 
+select r.ResourceID,
+       i.Name,
+       isnull(ltrim(de.DealNumber), ''), 
+       isnull(al.OnDate, '19000101'),
+       isnull(al.DateLast, '19000101'),
+       isnull(de.Qty, 0),
+       f.Brief,
+       case
+         when charindex(';', de.Comment) > 0
+         then isnull(substring(de.Comment, 1, charindex(';', de.Comment) - 1), '')         
+         else isnull(str_replace(str_replace(de.Comment, char(10), ' '), char(13), ''), '')
+       end,
+       case
+         when charindex(';', de.Comment) > 0
+         then isnull(substring(de.Comment, charindex(';', de.Comment) + 1, len(de.Comment)), '')
+         else ''
+       end,
+       r.Brief
+  from tResource r #M_NOLOCK_INDEX(XAK1tResource)
+ inner join tInstitution i #M_NOLOCK_INDEX(XPKtInstitution) on i.InstitutionID = r.InstOwnerID
+ inner join tCurrency f #M_NOLOCK_INDEX(XPKtCurrency) on f.CurrencyID = r.FundID
+  left join tMMAccountLink al #M_NOLOCK_INDEX(XIE3tMMAccountLink) on al.ResourceID = r.ResourceID and al.TypeAccLinkID = 0
+  left join tDealAccLinkExt de #M_NOLOCK_INDEX(XPKtDealAccLinkExt) on de.AccountLinkID = al.AccountLinkID
+ where r.Brief like '320\%'
+   and r.BalanceID = 2140
+   and r.DateStart <= @DateEnd
+   and (r.DateEnd >= @DateStart or r.DateEnd = '19000101')
+ order by r.Brief   
+  
+update #Result
+   set QualityClass = opv.Value_Int
+  from tODPointer op #M_NOLOCK_INDEX(XAK0tODPointer),
+       tODPointVal opv #M_NOLOCK_INDEX(XAK0tODPointVal)
+ where op.Brief = 'Степень риска.'
+   and opv.ODPointerID = op.ODPointerID
+   and opv.ElementID = #Result.ResourceID
+   and opv.CntParamsID = @CntParamsID
+   and opv.Page = 0
+   and opv.BranchID = 2000
+   and opv.FundID = 0
+   and opv.ODTreeID = 0 
+   and opv.OnDate = (select max(opv1.OnDate)
+                       from tODPointVal opv1 #M_NOLOCK_INDEX(XAK0tODPointVal)
+                      where opv1.ODPointerID = opv.ODPointerID
+                        and opv1.ElementID = opv.ElementID
+                        and opv1.CntParamsID = @CntParamsID
+                        and opv1.Page = 0
+                        and opv1.BranchID = 2000
+                        and opv1.FundID = 0
+                        and opv1.ODTreeID = 0 
+                        and opv1.OnDate <= @DateEnd)
+    
+update #Result
+   set ReserveRatio = opv.Value_Float
+  from tODPointer op #M_NOLOCK_INDEX(XAK0tODPointer),
+       tODPointVal opv #M_NOLOCK_INDEX(XAK0tODPointVal)
+ where op.Brief = 'Нормы резервирования'
+   and opv.ODPointerID = op.ODPointerID
+   and opv.ElementID = #Result.ResourceID
+   and opv.CntParamsID = @CntParamsID
+   and opv.Page = 0
+   and opv.BranchID = 2000 
+   and opv.FundID = 0
+   and opv.ODTreeID = 0 
+   and opv.OnDate = (select max(opv1.OnDate)
+                       from tODPointVal opv1 #M_NOLOCK_INDEX(XAK0tODPointVal)
+                      where opv1.ODPointerID = opv.ODPointerID
+                        and opv1.ElementID = opv.ElementID
+                        and opv1.CntParamsID = @CntParamsID
+                        and opv1.Page = 0
+                        and opv1.BranchID = 2000
+                        and opv1.FundID = 0
+                        and opv1.ODTreeID = 0 
+                        and opv1.OnDate <= @DateEnd)
+     
+update #Result
+   set PrcntRes = isnull(r.Brief, '')
+  from tInstAccount ia #M_NOLOCK_INDEX(XAK1tInstAccount),
+       tResource r #M_NOLOCK_INDEX(XPKtResource)
+ where ia.ResourceID = #Result.ResourceID
+   and ia.AccType = @AccType
+   and ia.ResBenefID = r.ResourceID
+   and substring(r.Brief, 1, 5) = '47427'
+
+update #Result
+   set PrcntResCnt = sign(ia.ResBenefID)
+  from tInstAccount ia #M_NOLOCK_INDEX(XAK1tInstAccount),
+       tResource r #M_NOLOCK_INDEX(XPKtResource)
+ where ia.ResourceID = #Result.ResourceID
+   and ia.AccType = @AccType
+   and ia.ResBenefID = r.ResourceID
+   and substring(r.Brief, 1, 5) = '47427'
+   and r.Brief <> #Result.PrcntRes
+
+update #Result
+   set MainReserveRes = isnull(r.Brief, '')
+  from tInstAccount ia #M_NOLOCK_INDEX(XAK1tInstAccount),
+       tResource r #M_NOLOCK_INDEX(XPKtResource)
+ where ia.ResourceID = #Result.ResourceID
+   and ia.AccType = @AccType
+   and ia.ResBenefID = r.ResourceID
+   and substring(r.Brief, 1, 5) in ('32015', '31915')
+
+update #Result
+   set MainReserveResCnt = sign(ia.ResBenefID)
+  from tInstAccount ia #M_NOLOCK_INDEX(XAK1tInstAccount),
+       tResource r #M_NOLOCK_INDEX(XPKtResource)
+ where ia.ResourceID = #Result.ResourceID
+   and ia.AccType = @AccType
+   and ia.ResBenefID = r.ResourceID
+   and substring(r.Brief, 1, 5) in ('32015', '31915')
+   and r.Brief <> #Result.MainReserveRes
+
+update #Result
+   set PrcntReserveRes = isnull(r.Brief, '')
+  from tInstAccount ia #M_NOLOCK_INDEX(XAK1tInstAccount),
+       tResource r #M_NOLOCK_INDEX(XPKtResource)
+ where ia.ResourceID = #Result.ResourceID
+   and ia.AccType = @AccType
+   and ia.ResBenefID = r.ResourceID
+   and substring(r.Brief, 1, 5) = '47425'
+
+update #Result
+   set PrcntReserveResCnt = sign(ia.ResBenefID)
+  from tInstAccount ia #M_NOLOCK_INDEX(XAK1tInstAccount),
+       tResource r #M_NOLOCK_INDEX(XPKtResource)
+ where ia.ResourceID = #Result.ResourceID
+   and ia.AccType = @AccType
+   and ia.ResBenefID = r.ResourceID
+   and substring(r.Brief, 1, 5) = '47425'
+   and r.Brief <> #Result.PrcntReserveRes
+
+update #Result
+   set SortField = case
+                     when substring(MainRes, 1, 3) = '319' then 1
+                     when substring(MainRes, 1, 3) = '320' then 2
+                     when substring(MainRes, 1, 3) = '312' then 3
+                     when substring(MainRes, 1, 3) = '313' then 4
+                     when substring(MainRes, 1, 3) = '314' then 5
+                   end
+   
+--Обработаем ошибки
+insert pErrorLine(SPID, Tag, TextLine)
+select distinct @@spid, '', 'Для счета ' + MainRes + ' найдено более одного счета процентов'
+  from #Result
+ where PrcntResCnt > 0
+
+insert pErrorLine(SPID, Tag, TextLine)
+select distinct @@spid, '', 'Для счета ' + MainRes + ' найдено более одного счета резерва по ОД'
+  from #Result
+ where MainReserveResCnt > 0
+
+insert pErrorLine(SPID, Tag, TextLine)
+select distinct @@spid, '', 'Для счета ' + MainRes + ' найдено более одного счета резерва по процентам'
+  from #Result
+ where PrcntReserveResCnt > 0
+--
+if not exists (select 1 from #Result)
+begin
+  select @ErrMsg = 'Нет данных для расчета!'
+
+  insert pErrorLine(SPID, Tag, TextLine)
+  select @@spid, '', @ErrMsg
+
+  insert #Result
+         (
+         ResourceID,
+         BankName,
+         DealNumber,
+         DateStart,
+         DateEnd,
+         Qty,
+         Fund,
+         Prcnt,
+         AccrualBase,
+         MainRes,
+         PrcntRes,
+         QualityClass,
+         ReserveRatio,
+         MainReserveRes,
+         PrcntReserveRes,
+         PrcntResCnt,
+         MainReserveResCnt,
+         PrcntReserveResCnt,
+         SortField
+         )   
+  select 0 as ResourceID,
+         '' as BankName,
+         '' as DealNumber,
+         '19000101' as DateStart,
+         '19000101' as DateEnd,
+         0 as Qty,
+         '' as Fund,
+         '' as Prcnt,
+         '' as AccrualBase,
+         '' as MainRes,
+         '' as PrcntRes,
+         0 as QualityClass,
+         0 as ReserveRatio,
+         '' as MainReserveRes,
+         '' as PrcntReserveRes,
+         0 as PrcntResCnt,
+         0 as MainReserveResCnt,
+         0 as PrcntReserveResCnt,
+         0 as SortField
+end
+
+-- итоговая выборка
+select 'RFB_MBK_Deals_' + convert(varchar, @@spid) + '.xml' as FName,
+       @DateStart as RepDateStart,
+       @DateEnd   as RepDateEnd,
+       BankName,
+       DealNumber,
+       DateStart,
+       DateEnd,
+       Qty,
+       Fund,
+       Prcnt,
+       AccrualBase,
+       MainRes,
+       case 
+         when PrcntResCnt = 0 then PrcntRes
+         else ''
+       end as PrcntRes,
+       QualityClass,
+       ReserveRatio,
+       case 
+         when MainReserveResCnt = 0 then MainReserveRes
+         else ''
+       end as MainReserveRes,       
+       case 
+         when PrcntReserveResCnt = 0 then PrcntReserveRes
+         else ''
+       end as PrcntReserveRes       
+  from #Result
+ order by DateStart, SortField
+}
+
+
+[Fields]
+@RepDateStart@      = Field{RepDateStart, @d6.b}
+@RepDateEnd@        = Field{RepDateEnd, @d6.b}
+@BankName@          = Field{BankName, @s255}
+@DealNumber@        = Field{DealNumber, @s25}
+@DateStart@         = Field{DateStart, @d6.b}
+@DateEnd@           = Field{DateEnd, @d6.b}
+@Qty@               = Field{Qty, @n-_18.2t}
+@Fund@              = Field{Fund, @s3}
+@Prcnt@             = Field{Prcnt, @s10}
+@AccrualBase@       = Field{AccrualBase, @s10}
+@MainRes@           = Field{MainRes, @s25}
+@PrcntRes@          = Field{PrcntRes, @s25}
+@QualityClass@      = Field{QualityClass, @n-_5t}
+@ReserveRatio@      = Field{ReserveRatio, @n-_18.2t}
+@MainReserveRes@    = Field{MainReserveRes, @s25}
+@PrcntReserveRes@   = Field{PrcntReserveRes, @s25}
+
+@PS@=PrinterSetup{LANDSCAPE, , , , ,Courier New Cyr DS,9,BOLD}  
+@SQLInfo@=SQLInfo{True} 
+@PF@ = PreviewForm{True}
+@FName@    = Field{FName,@s255t}
+@FileName@ = FileName{@FName@} 
+@UN@ = OnReportComplete{WinExec(FilePath + "start.bat " + FilePath + Fname,,"",,"",,""),@s250}
+ 
+@Sharp@ = Field{'#', @s1}
+
+&&
+#@SQLInfo@
+#@PS@
+#@PF@
+#@SQL@
+#@FileName@
+#@UN@
+<?xml version="1.0" encoding="windows-1251"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal">
+   <Alignment ss:Vertical="Bottom"/>
+   <Borders/>
+   <Font ss:FontName="Arial Cyr" x:CharSet="204"/>
+   <Interior/>
+   <NumberFormat/>
+   <Protection/>
+  </Style>
+  <Style ss:ID="Head1">
+   <Font ss:FontName="Arial Cyr" x:CharSet="204" ss:Bold="1"/>
+  </Style>
+  <Style ss:ID="Head2">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
+   </Borders>
+   <Font ss:FontName="Times New Roman" x:CharSet="204" x:Family="Roman" ss:Size="9"/>
+   <Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/>
+  </Style>  
+  <Style ss:ID="Row1">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Top"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
+   </Borders>
+  </Style>
+ </Styles>
+ <Worksheet ss:Name="Лист1">
+  <Table>
+   <Column ss:AutoFitWidth="0" ss:Width="168"/>
+   <Column ss:AutoFitWidth="0" ss:Width="81"/>
+   <Column ss:AutoFitWidth="0" ss:Width="59.25"/>
+   <Column ss:AutoFitWidth="0" ss:Width="56.25"/>
+   <Column ss:AutoFitWidth="0" ss:Width="58.5"/>
+   <Column ss:Width="53.25"/>
+   <Column ss:AutoFitWidth="0" ss:Width="59.25"/>
+   <Column ss:AutoFitWidth="0" ss:Width="53.25"/>
+   <Column ss:AutoFitWidth="0" ss:Width="120"/>
+   <Column ss:AutoFitWidth="0" ss:Width="120"/>
+   <Column ss:AutoFitWidth="0" ss:Width="59.25"/>
+   <Column ss:AutoFitWidth="0" ss:Width="67.5"/>
+   <Column ss:AutoFitWidth="0" ss:Width="120"/>
+   <Column ss:AutoFitWidth="0" ss:Width="120"/>
+   
+   <Row ss:AutoFitHeight="0" ss:Height="16.5">
+    <Cell ss:Index="3" ss:StyleID="Head1"><Data ss:Type="String">Отчет о сделках МБК, заключенных в период</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:Index="3" ss:StyleID="Head1"><Data ss:Type="String">с</Data></Cell>
+    <Cell ss:StyleID="Head1"><Data ss:Type="String">@RepDateStart@</Data></Cell>
+    <Cell ss:StyleID="Head1"><Data ss:Type="String">по</Data></Cell>
+    <Cell ss:StyleID="Head1"><Data ss:Type="String">@RepDateEnd@</Data></Cell>
+   </Row>
+   <Row>
+    <Cell/>
+   </Row>
+   <Row ss:AutoFitHeight="0" ss:Height="51">
+    <Cell ss:StyleID="Head2"><Data ss:Type="String">Наименование банка-контрагента</Data></Cell>
+    <Cell ss:StyleID="Head2"><Data ss:Type="String">Номер договора</Data></Cell>
+    <Cell ss:StyleID="Head2"><Data ss:Type="String">Дата начала договора</Data></Cell>
+    <Cell ss:StyleID="Head2"><Data ss:Type="String">Дата окончания договора</Data></Cell>
+    <Cell ss:StyleID="Head2"><Data ss:Type="String">Сумма кредита</Data></Cell>
+    <Cell ss:StyleID="Head2"><Data ss:Type="String">Валюта</Data></Cell>
+    <Cell ss:StyleID="Head2"><Data ss:Type="String">Процентная ставка</Data></Cell>
+    <Cell ss:StyleID="Head2"><Data ss:Type="String">База начисления %</Data></Cell>
+    <Cell ss:StyleID="Head2"><Data ss:Type="String">Счет основного долга</Data></Cell>
+    <Cell ss:StyleID="Head2"><Data ss:Type="String">Счет %%</Data></Cell>
+    <Cell ss:StyleID="Head2"><Data ss:Type="String">Категория качества</Data></Cell>
+    <Cell ss:StyleID="Head2"><Data ss:Type="String">Норма резервирования</Data></Cell>
+    <Cell ss:StyleID="Head2"><Data ss:Type="String">Счет резерва по ОД</Data></Cell>
+    <Cell ss:StyleID="Head2"><Data ss:Type="String">Счет резерва по %%</Data></Cell>
+   </Row>
+   
+$T
+   <Row>
+    <Cell ss:StyleID="Row1"><Data ss:Type="String">@BankName@</Data></Cell>
+    <Cell ss:StyleID="Row1"><Data ss:Type="String">@DealNumber@</Data></Cell>
+    <Cell ss:StyleID="Row1"><Data ss:Type="String">@DateStart@</Data></Cell>
+    <Cell ss:StyleID="Row1"><Data ss:Type="String">@DateEnd@</Data></Cell>
+    <Cell ss:StyleID="Row1"><Data ss:Type="String">@Qty@</Data></Cell>
+    <Cell ss:StyleID="Row1"><Data ss:Type="String">@Fund@</Data></Cell>
+    <Cell ss:StyleID="Row1"><Data ss:Type="String">@Prcnt@</Data></Cell>
+    <Cell ss:StyleID="Row1"><Data ss:Type="String">@AccrualBase@</Data></Cell>
+    <Cell ss:StyleID="Row1"><Data ss:Type="String">@MainRes@</Data></Cell>
+    <Cell ss:StyleID="Row1"><Data ss:Type="String">@PrcntRes@</Data></Cell>
+    <Cell ss:StyleID="Row1"><Data ss:Type="Number">@QualityClass@</Data></Cell>
+    <Cell ss:StyleID="Row1"><Data ss:Type="Number">@ReserveRatio@</Data></Cell>
+    <Cell ss:StyleID="Row1"><Data ss:Type="String">@MainReserveRes@</Data></Cell>
+    <Cell ss:StyleID="Row1"><Data ss:Type="String">@PrcntReserveRes@</Data></Cell>
+   </Row>
+$
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <Zoom>80</Zoom>
+   <Selected/>
+   <FreezePanes/>
+   <FrozenNoSplit/>
+  </WorksheetOptions>  
+ </Worksheet>
+</Workbook>
+&&
+&&
+%Date1! = Param{Дата с, dtDatetime, 0, , , , , , , 0, 0}
+%Date2!   = Param{Дата по, dtDatetime, 0, , , , , , , 0, 0}
